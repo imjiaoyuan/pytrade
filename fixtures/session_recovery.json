@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "source": "synthetic",
+  "description": "Duplicate fills, late order reports and stale market epochs; no credentials, no network, no trader requests",
+  "events": [
+    {
+      "kind": "retain",
+      "key": "SHFE.au2612"
+    },
+    {
+      "kind": "td_login",
+      "front": 1,
+      "session": 2,
+      "max_ref": "0",
+      "day": "20261030"
+    },
+    {
+      "kind": "query_rows",
+      "query": "instruments",
+      "cycle": 1,
+      "rows": [
+        {
+          "InstrumentID": "au2612",
+          "ExchangeID": "SHFE",
+          "InstrumentName": "synthetic",
+          "PriceTick": "0.02",
+          "VolumeMultiple": 1000,
+          "ExpireDate": "20261231",
+          "IsTrading": 1,
+          "ProductClass": "1",
+          "MinLimitOrderVolume": 1,
+          "MaxLimitOrderVolume": 100
+        }
+      ]
+    },
+    {
+      "kind": "query_rows",
+      "query": "positions",
+      "cycle": 1,
+      "rows": []
+    },
+    {
+      "kind": "query_rows",
+      "query": "orders",
+      "cycle": 1,
+      "rows": []
+    },
+    {
+      "kind": "query_rows",
+      "query": "trades",
+      "cycle": 1,
+      "rows": []
+    },
+    {
+      "kind": "query_rows",
+      "query": "account",
+      "cycle": 1,
+      "rows": [
+        {
+          "CurrencyID": "CNY",
+          "Balance": 100000,
+          "Available": 100000,
+          "Deposit": 0,
+          "Withdraw": 0
+        }
+      ]
+    },
+    {
+      "kind": "sync_done",
+      "cycle": 1
+    },
+    {
+      "kind": "settled"
+    },
+    {
+      "kind": "md_state",
+      "epoch": 1,
+      "status": "synthetic login"
+    },
+    {
+      "kind": "subscription",
+      "epoch": 1,
+      "key": "SHFE.au2612",
+      "error": 0
+    },
+    {
+      "kind": "quote",
+      "epoch": 1,
+      "key": "SHFE.au2612",
+      "row": {
+        "LastPrice": "916.66",
+        "BidPrice1": "916.64",
+        "BidVolume1": 3,
+        "AskPrice1": "916.68",
+        "AskVolume1": 2,
+        "Volume": 10,
+        "TradingDay": "20261030",
+        "ActionDay": "20261029",
+        "UpdateTime": "21:01:00"
+      }
+    },
+    {
+      "kind": "order",
+      "row": {
+        "FrontID": 1,
+        "SessionID": 2,
+        "OrderRef": "10",
+        "TradingDay": "20261030",
+        "ExchangeID": "SHFE",
+        "InstrumentID": "au2612",
+        "OrderSysID": "SYNTHETIC1",
+        "Direction": "0",
+        "CombOffsetFlag": "0",
+        "VolumeTotalOriginal": 2,
+        "VolumeTraded": 1,
+        "OrderStatus": "1"
+      }
+    },
+    {
+      "kind": "trade",
+      "row": {
+        "TradingDay": "20261030",
+        "ExchangeID": "SHFE",
+        "InstrumentID": "au2612",
+        "OrderSysID": "SYNTHETIC1",
+        "TradeID": "SYNTHETIC1",
+        "Direction": "0",
+        "OffsetFlag": "0",
+        "Volume": 1,
+        "Price": "916.66"
+      }
+    },
+    {
+      "kind": "trade",
+      "row": {
+        "TradingDay": "20261030",
+        "ExchangeID": "SHFE",
+        "InstrumentID": "au2612",
+        "OrderSysID": "SYNTHETIC1",
+        "TradeID": "SYNTHETIC1",
+        "Direction": "0",
+        "OffsetFlag": "0",
+        "Volume": 1,
+        "Price": "916.66"
+      }
+    },
+    {
+      "kind": "order",
+      "row": {
+        "FrontID": 1,
+        "SessionID": 2,
+        "OrderRef": "10",
+        "TradingDay": "20261030",
+        "ExchangeID": "SHFE",
+        "InstrumentID": "au2612",
+        "OrderSysID": "SYNTHETIC1",
+        "Direction": "0",
+        "CombOffsetFlag": "0",
+        "VolumeTotalOriginal": 2,
+        "VolumeTraded": 2,
+        "OrderStatus": "0"
+      }
+    },
+    {
+      "kind": "order",
+      "row": {
+        "FrontID": 1,
+        "SessionID": 2,
+        "OrderRef": "10",
+        "TradingDay": "20261030",
+        "ExchangeID": "SHFE",
+        "InstrumentID": "au2612",
+        "OrderSysID": "SYNTHETIC1",
+        "Direction": "0",
+        "CombOffsetFlag": "0",
+        "VolumeTotalOriginal": 2,
+        "VolumeTraded": 0,
+        "OrderStatus": "3"
+      }
+    },
+    {
+      "kind": "md_state",
+      "epoch": 2,
+      "status": "synthetic reconnect"
+    },
+    {
+      "kind": "quote",
+      "epoch": 1,
+      "key": "SHFE.au2612",
+      "row": {
+        "LastPrice": "916.66",
+        "BidPrice1": "916.64",
+        "BidVolume1": 3,
+        "AskPrice1": "916.68",
+        "AskVolume1": 2,
+        "Volume": 10,
+        "TradingDay": "20261030",
+        "ActionDay": "20261029",
+        "UpdateTime": "21:01:00"
+      }
+    },
+    {
+      "kind": "subscription",
+      "epoch": 2,
+      "key": "SHFE.au2612",
+      "error": 0
+    },
+    {
+      "kind": "quote",
+      "epoch": 2,
+      "key": "SHFE.au2612",
+      "row": {
+        "LastPrice": "916.68",
+        "BidPrice1": "916.64",
+        "BidVolume1": 3,
+        "AskPrice1": "916.68",
+        "AskVolume1": 2,
+        "Volume": 10,
+        "TradingDay": "20261030",
+        "ActionDay": "20261029",
+        "UpdateTime": "21:01:00"
+      }
+    },
+    {
+      "kind": "td_state",
+      "status": "synthetic disconnect"
+    }
+  ],
+  "expected": {
+    "order_states": {
+      "20261030:1:2:10": "0"
+    },
+    "trades": 1,
+    "snapshots": {
+      "SHFE.au2612": 45834
+    },
+    "logged_in": false,
+    "ready": false,
+    "faulted": false
+  }
+}

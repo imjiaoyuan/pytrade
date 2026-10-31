@@ -1,0 +1,18 @@
+# Private reference materials: original binaries, screenshots with personal info, videos
+reference_materials/
+dist/
+build/
+.runtime/
+.venv/
+.venv312/
+.venv-windows/
+.uv-cache/
+.agents/
+.aws/
+.codex/
+__pycache__/
+*.pyc
+diagnostics.json
+bundle-diagnostics.json
+shots/
+AGENTS.md

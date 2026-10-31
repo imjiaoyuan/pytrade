@@ -1,0 +1,262 @@
+{
+  "updated_at_utc": "2026-10-29T14:48:25.858151+00:00",
+  "scope": "point-in-time market-only checks; addresses are not independent provider guarantees",
+  "services": [
+    {
+      "name": "海通",
+      "front": "tcp://180.168.212.75:38215",
+      "category": "original_market",
+      "also_in_remote_list": false,
+      "evidence_file": "market_verification.json",
+      "checked_at_utc": "2026-10-29T14:42:33.246645+00:00",
+      "quote_count": 147,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "东证联通",
+      "front": "tcp://140.207.230.97:61213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "东证电信",
+      "front": "tcp://101.226.253.177:61213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "创元联1",
+      "front": "tcp://101.226.249.59:41213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "创元联2",
+      "front": "tcp://101.226.249.60:41213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "天鸿联通",
+      "front": "tcp://58.246.138.43:42213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "天鸿电信",
+      "front": "tcp://180.166.12.248:42213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 0,
+      "observed_depth": {},
+      "status": "no_session_callback_within_25s"
+    },
+    {
+      "name": "中信联通",
+      "front": "tcp://58.33.80.165:28213",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "国富电信",
+      "front": "tcp://101.230.178.178:53313",
+      "category": "original_market",
+      "also_in_remote_list": true,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "盛达",
+      "front": "tcp://122.224.130.77:42213",
+      "category": "original_market",
+      "also_in_remote_list": false,
+      "evidence_file": "market_verification.json",
+      "checked_at_utc": "2026-10-29T14:42:33.246645+00:00",
+      "quote_count": 147,
+      "observed_depth": {
+        "ag2612": 1,
+        "au2612": 1,
+        "rb2701": 1
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "国富2",
+      "front": "tcp://101.230.178.180:53313",
+      "category": "original_market",
+      "also_in_remote_list": false,
+      "evidence_file": "market_verification_remaining.json",
+      "checked_at_utc": "2026-10-29T14:45:47.122835+00:00",
+      "quote_count": 150,
+      "observed_depth": {
+        "ag2612": 5,
+        "au2612": 5,
+        "rb2701": 5
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "东证",
+      "front": "tcp://180.169.85.204:61213",
+      "category": "original_market",
+      "also_in_remote_list": false,
+      "evidence_file": "market_verification.json",
+      "checked_at_utc": "2026-10-29T14:42:33.246645+00:00",
+      "quote_count": 147,
+      "observed_depth": {
+        "ag2612": 1,
+        "au2612": 1,
+        "rb2701": 1
+      },
+      "status": "stream_verified"
+    },
+    {
+      "name": "中信仿真电信",
+      "front": "tcp://101.226.254.149:51313",
+      "category": "official_simulation_candidate",
+      "source_url": "https://www.citicf.com/e-futures/content/000204/816251",
+      "status": "no_session_callback_within_25s",
+      "quote_count": 0,
+      "evidence_file": "market_verification_extended.json"
+    },
+    {
+      "name": "中信仿真联通",
+      "front": "tcp://140.206.167.53:51313",
+      "category": "official_simulation_candidate",
+      "source_url": "https://www.citicf.com/e-futures/content/000204/816251",
+      "status": "no_session_callback_within_25s",
+      "quote_count": 0,
+      "evidence_file": "market_verification_extended.json"
+    },
+    {
+      "name": "SimNow-7x24",
+      "front": "tcp://182.254.243.31:40011",
+      "category": "public_simulation",
+      "status": "stream_verified",
+      "quote_count": 196,
+      "checked_at_utc": "2026-10-30T19:25:00+00:00",
+      "note": "公共7x24模拟环境；19:25时段空凭据实收GFEX期货与商品期权持续回调，仅一档深度；可用性由服务方控制"
+    },
+    {
+      "name": "openctp-7x24",
+      "front": "tcp://trading.openctp.cn:30011",
+      "category": "public_simulation",
+      "status": "repeated_disconnect_4097",
+      "checked_at_utc": "2026-10-30T19:20:00+00:00",
+      "note": "公共模拟环境；当日反复断线未收到行情"
+    },
+    {
+      "name": "N视界期货",
+      "front": "tcp://210.14.72.12:4602",
+      "category": "public_simulation",
+      "status": "tcp_reachable",
+      "checked_at_utc": "2026-10-30T19:16:00+00:00",
+      "note": "公共仿真；TCP可达，登录订阅未测"
+    }
+  ],
+  "public_trade_addresses": [
+    {
+      "name": "联通",
+      "front": "tcp://211.95.26.211:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "联通",
+      "front": "tcp://211.95.26.204:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "联通",
+      "front": "tcp://211.95.26.202:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "电信",
+      "front": "tcp://180.169.116.115:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "电信",
+      "front": "tcp://116.228.31.196:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "电信",
+      "front": "tcp://116.228.31.194:43205",
+      "status": "not_tested_trade_endpoint"
+    },
+    {
+      "name": "郑州电信",
+      "front": "tcp://1.192.170.213:43207",
+      "status": "not_tested_trade_endpoint"
+    }
+  ]
+}

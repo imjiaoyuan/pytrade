@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "source": "screenshots/original_option_dom_20261030.jpg",
+  "source_kind": "用户于2026-10-30提供的原版截图",
+  "windows_dpi": null,
+  "observations": [
+    {
+      "control": "独立窗口",
+      "observed": "三窗横向并列，单窗约260像素宽",
+      "semantics": "独立DOM；打开及关闭不改变工作台状态",
+      "basis": "截图外观及既有用户确认",
+      "status": "implemented"
+    },
+    {
+      "control": "价格梯形",
+      "observed": "灰底、中央上红下蓝价格列，约13像素窄行",
+      "semantics": null,
+      "status": "appearance_only"
+    },
+    {
+      "control": "黄色价位",
+      "observed": "中央列个别价位为黄色",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    },
+    {
+      "control": "浅灰价格区",
+      "observed": "红蓝价格区域之间存在浅灰区",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    },
+    {
+      "control": "黑色横线",
+      "observed": "价梯中部可见黑横线",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    },
+    {
+      "control": "绿色百分比",
+      "observed": "顶部绿色背景百分比",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    },
+    {
+      "control": "P与底部统计",
+      "observed": "大号P、若干数字、分组、T、C、深度",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    },
+    {
+      "control": "A/B及1/2",
+      "observed": "单选及数字按钮",
+      "semantics": null,
+      "status": "disabled_pending_evidence"
+    },
+    {
+      "control": "FOK、OnlyOpen",
+      "observed": "复选框标签",
+      "semantics": null,
+      "status": "disabled_pending_evidence"
+    },
+    {
+      "control": "Pt/Fct、CntrbySprd、Chg Nearby、M-OrderX",
+      "observed": "参数与选项标签",
+      "semantics": null,
+      "status": "disabled_pending_evidence"
+    },
+    {
+      "control": "快捷键及批量操作",
+      "observed": "截图不能证明操作结果",
+      "semantics": null,
+      "status": "requires_original_runtime"
+    }
+  ],
+  "application_rules": [
+    "当前黄色表示最新价，红色按卖一及以上、蓝色按买一及以下显示；均为原型规则，原版口径未核验",
+    "当前顶部绿色区域显示最新价，不伪造原版百分比",
+    "当前价格选择通过单击，双击居中，滚轮移动价梯；不宣称原版交易点击语义一致",
+    "原版语义未确认的控件保持禁用；普通限价报单使用明确命名的买开、卖开、买平、卖平按钮"
+  ],
+  "runtime_verification": "在Windows运行原EXE副本；记录动作前后窗口、价格、委托和持仓结果；资料含个人信息，公开前脱敏",
+  "static_dom_resource": "static_dom_controls_20261030.json",
+  "static_resource_limits": "DFM属性与事件处理器名称不等于运行行为；资源设计尺寸不能代替Windows实际DPI与窗口尺寸",
+  "confirmed_static_captions": {
+    "CBCDLock": "挂单锁定",
+    "CBZDTlock": "涨跌停锁",
+    "CBBGDS": "白格单锁",
+    "CBcjflag": "成交标识",
+    "LBKP": "P"
+  }
+}

@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ctp: openctp-ctp==6.7.11.0
+          - os: windows-latest
+            ctp: openctp-ctp==6.7.11.0
+          - os: macos-latest
+            ctp: openctp-ctp==6.7.7.1
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySide6==6.12.0 ${{ matrix.ctp }}
+      - name: Run tests
+        run: python -m unittest discover -s tests
+        env:
+          PYTHONPATH: src
+      - name: Native check
+        run: python src/main.py --diagnostics diagnostics.json --native-check
+        env:
+          PYTHONPATH: src
+
+  build-linux:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build zh_CN.GB18030 locale
+        run: |
+          sudo localedef -i zh_CN -f GB18030 --no-archive packaging/pyinstaller/locale/zh_CN.GB18030
+          sudo chmod -R a+rX packaging/pyinstaller/locale
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-desktop.txt pyinstaller
+      - name: Run tests
+        run: python -m unittest discover -s tests
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --noconfirm \
+            --distpath build/pyinstaller/dist \
+            --workpath build/pyinstaller/work \
+            packaging/pyinstaller/PyTrade.spec
+      - name: Verify bundle
+        run: |
+          build/pyinstaller/dist/PyTrade/PyTrade --diagnostics bundle-diagnostics.json --native-check
+          build/pyinstaller/dist/PyTrade/PyTrade --smoke-test --screenshot shots/
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Package tar.gz
+        run: |
+          cd build/pyinstaller/dist
+          tar czf ../../../pytrade-linux-x64.tar.gz PyTrade
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytrade-linux-x64
+          path: pytrade-linux-x64.tar.gz
+
+  build-windows:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-windows.lock pyinstaller
+      - name: Run tests
+        run: python -m unittest discover -s tests
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --noconfirm --distpath build/pyinstaller/dist --workpath build/pyinstaller/work packaging/pyinstaller/PyTrade.spec
+      - name: Verify bundle
+        run: |
+          build/pyinstaller/dist/PyTrade/PyTrade.exe --diagnostics bundle-diagnostics.json --native-check
+          build/pyinstaller/dist/PyTrade/PyTrade.exe --smoke-test --screenshot shots/
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Package zip
+        run: |
+          Compress-Archive -Path build/pyinstaller/dist/PyTrade -DestinationPath pytrade-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytrade-windows-x64
+          path: pytrade-windows-x64.zip
+
+  build-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install PySide6==6.12.0 openctp-ctp==6.7.7.1 pyinstaller
+      - name: Run tests
+        run: python -m unittest discover -s tests
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --noconfirm --distpath build/pyinstaller/dist --workpath build/pyinstaller/work packaging/pyinstaller/PyTrade.spec
+      - name: Verify bundle
+        run: |
+          build/pyinstaller/dist/PyTrade/PyTrade --diagnostics bundle-diagnostics.json --native-check
+          build/pyinstaller/dist/PyTrade/PyTrade --smoke-test --screenshot shots/
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Package tar.gz
+        run: |
+          cd build/pyinstaller/dist
+          tar czf ../../../pytrade-macos-arm64.tar.gz PyTrade
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytrade-macos-arm64
+          path: pytrade-macos-arm64.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/pytrade-linux-x64/pytrade-linux-x64.tar.gz
+            artifacts/pytrade-windows-x64/pytrade-windows-x64.zip
+            artifacts/pytrade-macos-arm64/pytrade-macos-arm64.tar.gz
+          generate_release_notes: true

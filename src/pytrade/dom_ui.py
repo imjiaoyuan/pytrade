@@ -1,0 +1,718 @@
+import re
+import time
+
+from PySide6.QtCore import QAbstractTableModel, QLocale, QModelIndex, QRect, Qt
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QShortcut
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton,
+    QScrollArea, QSpinBox, QTableView, QVBoxLayout, QWidget,
+)
+
+from .theme import LEGACY_PALETTE
+
+
+def legacy_style(zoom=100):
+    palette = LEGACY_PALETTE
+    return f"""
+        QWidget {{ background:{palette['sidebar']}; color:#181b22; font-size:{11 * zoom / 100:g}px; }}
+        QLabel {{ background:transparent; }}
+        QPushButton, QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {{
+            min-height:{18 * zoom / 100:g}px; padding:0px; border:1px solid #8f95a3;
+            background:#fdfdfe;
+        }}
+        QPushButton {{ background:#dde3ee; font-weight:bold; }}
+        QPushButton:pressed {{ background:#b9c4d8; }}
+        QCheckBox, QRadioButton {{ spacing:3px; min-height:{17 * zoom / 100:g}px; background:transparent; }}
+        QCheckBox::indicator, QRadioButton::indicator {{ width:{12 * zoom / 100:g}px; height:{12 * zoom / 100:g}px; }}
+        QCheckBox:disabled, QRadioButton:disabled {{ color:#757b88; }}
+        QTableView {{ background:{palette['price_gap']}; gridline-color:#c9cdd6; border:1px solid #777; }}
+        QScrollArea {{ border:0px; }}
+        QScrollBar:vertical {{ width:8px; }}
+    """
+
+
+class LadderModel(QAbstractTableModel):
+    def __init__(self, instrument, ledger):
+        super().__init__()
+        self.instrument = instrument
+        self.ledger = ledger
+        self.snapshot = None
+        self.center = instrument.initial_ticks
+        self.follow = True
+        self.real_mode = False
+        self.rows = 71
+        self.font_family = ""
+        self.row_height = 13
+        self.font_size = 11
+        self.pending_by_price = {}
+        self.filled_by_price = {}
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else self.rows
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else 3
+
+    def price_at(self, row):
+        return self.center + self.rows // 2 - row
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return ("买量", "价格", "卖量")[section]
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        price = self.price_at(index.row())
+        col = index.column()
+        snapshot = self.snapshot
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return Qt.AlignmentFlag.AlignCenter
+        if role == Qt.ItemDataRole.DisplayRole:
+            if price <= 0 or (self.real_mode and snapshot is None):
+                return ""
+            if col == 1:
+                return self.instrument.price(price)
+            levels = dict(snapshot.bids if col == 0 else snapshot.asks) if snapshot else {}
+            quantity = levels.get(price)
+            return str(quantity) if quantity is not None else ""
+        if role == Qt.ItemDataRole.BackgroundRole:
+            palette = LEGACY_PALETTE
+            if col == 1 and snapshot and price == snapshot.last:
+                return QColor(palette["last_price"])
+            if col == 0:
+                return QColor(palette["buy_volume"])
+            if col == 2:
+                return QColor(palette["sell_volume"])
+            return QColor(palette["price_gap"])
+        if role == Qt.ItemDataRole.ForegroundRole:
+            palette = LEGACY_PALETTE
+            if col == 1:
+                return QColor(palette["last_price_text"] if snapshot and price == snapshot.last else palette["price_text"])
+            return QColor(palette["buy_volume_text"] if col == 0 else palette["sell_volume_text"])
+        if role == Qt.ItemDataRole.FontRole:
+            font = QFont(self.font_family)
+            font.setPixelSize(min(self.font_size, self.row_height - 2))
+            font.setBold(True)
+            return font
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return "单击选择委托价格；通过左侧买开/卖开/买平/卖平按钮提交"
+
+    def update_snapshot(self, snapshot):
+        if snapshot is self.snapshot and (not self.follow or self.center == snapshot.last):
+            return
+        self.snapshot = snapshot
+        if self.follow:
+            self.center = snapshot.last
+        self.dataChanged.emit(self.index(0, 0), self.index(self.rows - 1, 2))
+
+
+class LadderView(QTableView):
+    wheel_steps = 3
+
+    def paintEvent(self, event):
+        model = self.model()
+        if model is None:
+            return
+        painter = QPainter(self.viewport())
+        palette = LEGACY_PALETTE
+        painter.fillRect(self.viewport().rect(), QColor(palette["price_gap"]))
+        snapshot = model.snapshot
+        height = model.row_height
+        font = QFont(model.font_family)
+        font.setPixelSize(min(model.font_size, height - 2))
+        font.setBold(True)
+        painter.setFont(font)
+        positions = [self.columnViewportPosition(column) for column in range(3)]
+        widths = [self.columnWidth(column) for column in range(3)]
+        bids = dict(snapshot.bids) if snapshot else {}
+        asks = dict(snapshot.asks) if snapshot else {}
+        fills = model.filled_by_price
+        pendings = model.pending_by_price
+        fill_color = QColor(palette["mark_fill"])
+        open_color = QColor(palette["mark_open"])
+        for row in range(model.rows):
+            y = row * height
+            price = model.price_at(row)
+            if price <= 0:
+                continue
+            painter.fillRect(positions[0], y, widths[0], height, QColor(palette["buy_volume"]))
+            painter.fillRect(positions[2], y, widths[2], height, QColor(palette["sell_volume"]))
+            if snapshot and price == snapshot.last:
+                painter.fillRect(positions[1], y, widths[1], height, QColor(palette["last_price"]))
+            quantity = bids.get(price)
+            if quantity is not None and not (model.real_mode and snapshot is None):
+                painter.setPen(QColor(palette["buy_volume_text"]))
+                painter.drawText(QRect(positions[0], y, widths[0], height), Qt.AlignmentFlag.AlignCenter, str(quantity))
+            if not (model.real_mode and snapshot is None):
+                painter.setPen(QColor(palette["last_price_text"] if snapshot and price == snapshot.last else palette["price_text"]))
+                painter.drawText(QRect(positions[1], y, widths[1], height), Qt.AlignmentFlag.AlignCenter, model.instrument.price(price))
+            quantity = asks.get(price)
+            if quantity is not None and not (model.real_mode and snapshot is None):
+                painter.setPen(QColor(palette["sell_volume_text"]))
+                painter.drawText(QRect(positions[2], y, widths[2], height), Qt.AlignmentFlag.AlignCenter, str(quantity))
+            marks = (fills.get(price, 0), pendings.get(price, 0))
+            if marks != (0, 0):
+                width = max(2, widths[0] // 6)
+                if marks[1]:
+                    painter.fillRect(positions[0], y, width, height, open_color)
+                if marks[0]:
+                    painter.fillRect(positions[0] + width, y, width, height, fill_color)
+                painter.fillRect(positions[2] + widths[2] - 2 * width, y, 2 * width, height, fill_color if marks[0] else open_color)
+        painter.setPen(QColor("#c9cdd6"))
+        for row in range(model.rows + 1):
+            painter.drawLine(0, row * height, self.viewport().width(), row * height)
+        for position, width in zip(positions, widths):
+            painter.drawLine(position + width - 1, 0, position + width - 1, self.viewport().height())
+        painter.end()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        model = self.model()
+        if model:
+            rows = max(15, self.viewport().height() // model.row_height)
+            if rows != model.rows:
+                model.beginResetModel()
+                model.rows = rows
+                model.endResetModel()
+
+    def wheelEvent(self, event):
+        model = self.model()
+        if event.angleDelta().y() == 0:
+            event.ignore()
+            return
+        model.follow = False
+        model.center = max(1, model.center + (self.wheel_steps if event.angleDelta().y() > 0 else -self.wheel_steps))
+        model.dataChanged.emit(model.index(0, 0), model.index(model.rows - 1, 2))
+        event.accept()
+
+
+class DomWindow(QWidget):
+    def __init__(self, controller, key, group=1):
+        super().__init__()
+        self.controller = controller
+        self.zoom_percent = 100
+        self.closing = False
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, True)
+        self.instrument = controller.catalog[key]
+        self.setWindowTitle(f"{key} [离线模拟]")
+        self.resize(300, controller.config_store.effective().dom_height)
+        self.setMinimumSize(288, 360)
+        self.setStyleSheet(legacy_style())
+        shell = QVBoxLayout(self)
+        shell.setContentsMargins(1, 1, 1, 1)
+        shell.setSpacing(1)
+        topbar = QWidget()
+        self.topbar = topbar
+        topbar.setStyleSheet(f"background:{LEGACY_PALETTE['topbar']};color:{LEGACY_PALETTE['topbar_text']};font-weight:bold;font-size:12px")
+        topbar.setFixedHeight(22)
+        top_layout = QHBoxLayout(topbar)
+        top_layout.setContentsMargins(5, 0, 5, 0)
+        top_layout.setSpacing(6)
+        self.contract_label = QLabel(self.instrument.key)
+        self.mode_label = QLabel("离线模拟")
+        self.time_label = QLabel("--:--:--")
+        for label in (self.contract_label, self.mode_label, self.time_label):
+            label.setStyleSheet("background:transparent;color:%s" % LEGACY_PALETTE["topbar_text"])
+        top_layout.addWidget(self.contract_label)
+        top_layout.addStretch(1)
+        top_layout.addWidget(self.mode_label)
+        top_layout.addWidget(self.time_label)
+        shell.addWidget(topbar)
+        root = QHBoxLayout()
+        shell.addLayout(root, 1)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(2)
+        sidebar = QWidget()
+        self.sidebar = sidebar
+        sidebar.setFixedWidth(132)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(1)
+        self.banner = QLabel("离线模拟")
+        self.banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.banner.setWordWrap(True)
+        self.banner.setFixedHeight(19)
+        self.banner.setStyleSheet("background:#e2e5ec;color:#a32638;font-size:12px;font-weight:bold")
+        side.addWidget(self.banner)
+        window_tools = QHBoxLayout()
+        window_tools.setSpacing(1)
+        for text, tip, action in (("－", "缩小显示", lambda: self.set_zoom(self.zoom_percent - 25)), ("＋", "放大显示", lambda: self.set_zoom(self.zoom_percent + 25)), ("关闭", "关闭本窗（不撤销外部委托）", self.close)):
+            button = QPushButton(text)
+            button.setToolTip(tip)
+            button.clicked.connect(action)
+            window_tools.addWidget(button)
+        side.addLayout(window_tools)
+        self.maximize_button = QPushButton("最大化 / 还原")
+        self.maximize_button.clicked.connect(self.toggle_maximized)
+        side.addWidget(self.maximize_button)
+        self.close_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.close_shortcut.activated.connect(self.close)
+        self.cancel_shortcut = QShortcut(QKeySequence("Space"), self)
+        self.cancel_shortcut.activated.connect(lambda: controller.cancel_orders(key, group=self.group.value(), shortcut=True))
+        self.summary = QLabel("等待行情")
+        self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.summary.setFixedHeight(27)
+        self.summary.setStyleSheet(f"background:{LEGACY_PALETTE['summary']};color:{LEGACY_PALETTE['summary_text']};font-size:16px;font-weight:bold")
+        side.addWidget(self.summary)
+        self.quote = QLabel()
+        self.quote.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.quote.setMinimumHeight(52)
+        self.quote.setStyleSheet(f"background:{LEGACY_PALETTE['quote_panel']};font-weight:bold")
+        side.addWidget(self.quote)
+        self.long_position = QLabel("多 0")
+        self.short_position = QLabel("空 0")
+        for label, color in ((self.long_position, LEGACY_PALETTE["buy_volume"]), (self.short_position, LEGACY_PALETTE["side_button_sell"])):
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setFixedHeight(21)
+            label.setStyleSheet(f"background:{color};color:#ffffff;font-size:14px;font-weight:bold")
+            side.addWidget(label)
+        presets = QHBoxLayout()
+        presets.setSpacing(1)
+        for text in ("1", "2"):
+            button = QPushButton(text)
+            button.setEnabled(False)
+            button.setToolTip("原版数字按钮语义待确认")
+            presets.addWidget(button)
+        side.addLayout(presets)
+        spread = QCheckBox("CntrbySprd")
+        spread.setEnabled(False)
+        spread.setToolTip("原版价差控制语义待确认")
+        side.addWidget(spread)
+        parameters = QGridLayout()
+        parameters.setContentsMargins(0, 0, 0, 0)
+        parameters.setHorizontalSpacing(1)
+        parameters.setVerticalSpacing(1)
+        for row, (name, value) in enumerate((("", "ag_o"), ("Pt", "0"), ("Fct", "1"))):
+            parameters.addWidget(QLabel(name), row, 0)
+            field = QLineEdit(value if name else self.instrument.key.split(".")[-1])
+            field.setMinimumWidth(0)
+            field.setReadOnly(True)
+            field.setEnabled(False)
+            field.setToolTip("原版参数含义待确认，仅保留外观；不参与报单")
+            parameters.addWidget(field, row, 1)
+        side.addLayout(parameters)
+        side.addSpacing(20)
+        choices = QHBoxLayout()
+        choices.setSpacing(2)
+        for name in ("A", "B"):
+            button = QRadioButton(name)
+            button.setEnabled(False)
+            button.setToolTip("原版 A/B 语义待确认")
+            choices.addWidget(button)
+        side.addLayout(choices)
+        for name in ("Chg Nearby", "OnlyOpen", "挂单锁定", "涨跌停锁", "白格单锁", "M-OrderX", "FOK"):
+            box = QCheckBox(name)
+            box.setEnabled(False)
+            box.setToolTip("原版行为待确认，未启用")
+            side.addWidget(box)
+        marks = QCheckBox("价梯标记")
+        marks.setChecked(True)
+        marks.setToolTip("在价梯两侧显示本合约委托与成交位置：蓝条为未成交委托，紫条为成交")
+        marks.toggled.connect(lambda checked: self.set_marks_enabled(checked))
+        self.marks_toggle = marks
+        side.addWidget(marks)
+        side.addStretch(1)
+        self.position = QLabel("模拟持仓\n多 0　空 0")
+        self.position.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.position.setMinimumHeight(46)
+        self.position.setStyleSheet("color:#7775ba;font-size:14px")
+        side.addWidget(self.position)
+        original_marker = QLabel("P")
+        self.original_marker = original_marker
+        original_marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        original_marker.setFixedHeight(40)
+        original_marker.setStyleSheet("color:#800040;font-family:'新宋体';font-size:28px")
+        original_marker.setToolTip("原版静态窗体 LBKP 的显示文字；点击行为待运行验证，当前仅作外观参考")
+        side.addWidget(original_marker)
+        side.addStretch(2)
+        self.quantity = QSpinBox()
+        self.quantity.setRange(1, controller.ledger.max_order)
+        self.quantity.setPrefix("手数 ")
+        side.addWidget(self.quantity)
+        self.price = QDoubleSpinBox()
+        self.price.setDecimals(max(0, -self.instrument.tick.as_tuple().exponent))
+        self.price.setRange(float(self.instrument.tick), 9999999)
+        self.price.setSingleStep(float(self.instrument.tick))
+        self.price.setValue(float(self.instrument.tick * self.instrument.initial_ticks))
+        self.price.setLocale(QLocale.c())
+        self.price.setToolTip("委托限价：单击价梯选择")
+        side.addWidget(self.price)
+        self.click_mode = QComboBox()
+        for label, value in (("价梯：仅选价", "select"), ("左买右卖·开", "mouse_open"), ("左买右卖·平", "mouse_close"), ("灰格买卖·开", "columns_open"), ("灰格买卖·平", "columns_close")):
+            self.click_mode.addItem(label, value)
+        self.click_mode.setToolTip("仅本地模拟：左买右卖按鼠标左右键；灰格买卖按左侧买、右侧卖。开/平须明确选择；不是已确认的原版规则")
+        side.addWidget(self.click_mode)
+        self.close_offset = QComboBox()
+        self.close_offset.addItems(("平仓", "平今", "平昨"))
+        side.addWidget(self.close_offset)
+        buttons = QGridLayout()
+        self.order_buttons = []
+        buttons.setSpacing(1)
+        for row, offset in enumerate(("开仓", "平仓")):
+            for col, direction in enumerate(("买", "卖")):
+                button = QPushButton(direction + offset[0])
+                button.setStyleSheet(f"background:{LEGACY_PALETTE['side_button_buy'] if direction == '买' else LEGACY_PALETTE['side_button_sell']};color:#ffffff")
+                button.clicked.connect(lambda checked=False, s=direction, o=offset: self.submit(s, o))
+                buttons.addWidget(button, row, col)
+                self.order_buttons.append(button)
+        side.addLayout(buttons)
+        self.group = QSpinBox()
+        self.group.setRange(1, 20)
+        self.group.setValue(group)
+        self.group.setPrefix("分组: ")
+        side.addWidget(self.group)
+        self.follow = QCheckBox("跟随最新价")
+        self.follow.setChecked(True)
+        self.follow.toggled.connect(self.set_follow)
+        side.addWidget(self.follow)
+        actions = QHBoxLayout()
+        actions.setSpacing(1)
+        center = QPushButton("居中")
+        center.clicked.connect(self.recenter)
+        actions.addWidget(center)
+        cancel = QPushButton("撤本窗")
+        self.cancel_button = cancel
+        cancel.setToolTip("撤销本合约委托")
+        cancel.clicked.connect(lambda: controller.cancel_orders(key))
+        actions.addWidget(cancel)
+        side.addLayout(actions)
+        self.paper_button = QPushButton("切换在线模拟")
+        self.paper_button.setToolTip("使用当前真实行情进行本地模拟，不连接交易账户；需要新鲜有效报价")
+        self.paper_button.clicked.connect(controller.enable_online_paper)
+        self.paper_button.hide()
+        side.addWidget(self.paper_button)
+        self.home_button = QPushButton("返回首页")
+        self.home_button.clicked.connect(controller.connect_ctp)
+        side.addWidget(self.home_button)
+        self.notice = QLabel("离线持仓仅本次会话\n不含手续费")
+        self.notice.setWordWrap(True)
+        self.notice.setStyleSheet("color:#555;font-size:10px")
+        side.addWidget(self.notice)
+        self.footer = QLabel("离线模拟")
+        self.footer.setWordWrap(True)
+        self.footer.setStyleSheet("color:#005c68;font-size:10px")
+        self.footer.setToolTip("滚轮移动价梯 · 单击选择委托限价 · 双击居中 · 蓝条挂单 / 紫条成交标记")
+        side.addWidget(self.footer)
+        sidebar_scroll = QScrollArea()
+        self.sidebar_scroll = sidebar_scroll
+        sidebar_scroll.setWidget(sidebar)
+        sidebar_scroll.setWidgetResizable(True)
+        sidebar_scroll.setFixedWidth(140)
+        sidebar_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        root.addWidget(sidebar_scroll)
+        self.model = LadderModel(self.instrument, controller.ledger)
+        self.table = LadderView()
+        self.table.setModel(self.model)
+        self.table.verticalHeader().hide()
+        self.table.horizontalHeader().hide()
+        self.table.verticalHeader().setMinimumSectionSize(13)
+        self.table.verticalHeader().setDefaultSectionSize(13)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 58)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setSelectionMode(QTableView.SelectionMode.NoSelection)
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.table.clicked.connect(self.price_action)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(lambda position: self.price_action(self.table.indexAt(position), right=True))
+        self.table.doubleClicked.connect(lambda index: self.recenter() if self.click_mode.currentData() == "select" else None)
+        root.addWidget(self.table, 1)
+        self.style_baselines = [(widget, widget.styleSheet()) for widget in (self, *self.findChildren(QWidget)) if widget.styleSheet()]
+
+    def toggle_maximized(self):
+        self.showNormal() if self.isMaximized() else self.showMaximized()
+
+    def scaled(self, value):
+        return round(value * self.zoom_percent / 100)
+
+    def set_marks_enabled(self, enabled):
+        self.model.filled_by_price = {}
+        self.model.pending_by_price = {}
+        if enabled:
+            self.refresh_marks()
+        self.model.dataChanged.emit(self.model.index(0, 0), self.model.index(self.model.rows - 1, 2))
+
+    def refresh_marks(self):
+        pending = {}
+        filled = {}
+        if self.marks_toggle.isChecked():
+            key = self.instrument.key
+            if self.controller.paper or (not self.controller.external and self.controller.offline_mode):
+                for order in self.controller.ledger.orders.values():
+                    if order.key != key:
+                        continue
+                    if order.status.value in ("已受理", "部分成交", "待回报"):
+                        pending[order.ticks] = pending.get(order.ticks, 0) + order.remaining
+                    elif order.status == 4 or order.filled:
+                        if order.filled:
+                            filled[order.ticks] = filled.get(order.ticks, 0) + order.filled
+            elif self.controller.external and self.controller.external.config.td_front:
+                for identifier, row in self.controller.external.orders.items():
+                    if f"{row.get('ExchangeID')}.{row.get('InstrumentID')}" != key:
+                        continue
+                    status = row.get("OrderStatus", "")
+                    volume = int(row.get("VolumeTotalOriginal", 0) or 0)
+                    traded = int(row.get("VolumeTraded", 0) or 0)
+                    if status in {"1", "2", "3", "5", "a", "b"} and volume > traded:
+                        try:
+                            ticks = self.instrument.ticks(str(row.get("LimitPrice", "")))
+                        except ValueError:
+                            continue
+                        pending[ticks] = pending.get(ticks, 0) + volume - traded
+                    if traded:
+                        try:
+                            ticks = self.instrument.ticks(str(row.get("LimitPrice", "")))
+                        except ValueError:
+                            continue
+                        filled[ticks] = filled.get(ticks, 0) + traded
+        changed = self.model.pending_by_price != pending or self.model.filled_by_price != filled
+        self.model.pending_by_price = pending
+        self.model.filled_by_price = filled
+        if changed:
+            self.model.dataChanged.emit(self.model.index(0, 0), self.model.index(self.model.rows - 1, 2))
+
+    def set_zoom(self, percent, resize=True):
+        if type(percent) is not int:
+            raise ValueError("显示比例须为整数")
+        percent = min(200, max(75, percent))
+        previous = self.zoom_percent
+        self.zoom_percent = percent
+        for widget, style in self.style_baselines:
+            widget.setStyleSheet(re.sub(r"(\d+(?:\.\d+)?)px", lambda match: f"{float(match[1]) * percent / 100:g}px", style))
+        self.sidebar.setFixedWidth(self.scaled(132))
+        self.sidebar_scroll.setFixedWidth(self.scaled(140))
+        self.topbar.setFixedHeight(self.scaled(22))
+        self.banner.setFixedHeight(self.scaled(32 if self.model.real_mode else 19))
+        self.summary.setFixedHeight(self.scaled(27))
+        self.long_position.setFixedHeight(self.scaled(21))
+        self.short_position.setFixedHeight(self.scaled(21))
+        self.original_marker.setFixedHeight(self.scaled(40))
+        self.quote.setMinimumHeight(self.scaled(52))
+        self.position.setMinimumHeight(self.scaled(46))
+        self.setMinimumWidth(self.scaled(288))
+        height = self.scaled(self.controller.config_store.effective().row_height)
+        self.model.font_size = self.scaled(11)
+        self.model.row_height = height
+        self.table.verticalHeader().setMinimumSectionSize(height)
+        self.table.verticalHeader().setDefaultSectionSize(height)
+        self.table.setColumnWidth(1, self.scaled(58))
+        if resize and percent != previous and not self.isMaximized():
+            available = self.screen().availableGeometry()
+            self.resize(min(round(self.width() * percent / previous), available.width()), min(round(self.height() * percent / previous), max(self.minimumHeight(), available.height() - 80)))
+        self.model.beginResetModel()
+        self.model.rows = max(15, self.table.viewport().height() // height)
+        self.model.endResetModel()
+        self.maximize_button.setToolTip(f"当前显示比例 {percent}%；可拖动窗口边缘改变尺寸")
+
+    def refresh_disconnected(self):
+        self.paper_button.hide()
+        self.click_mode.setEnabled(False)
+        self.model.real_mode = True
+        self.model.snapshot = None
+        self.model.dataChanged.emit(self.model.index(0, 0), self.model.index(self.model.rows - 1, 2))
+        self.banner.setText("已断开")
+        self.summary.setText("—")
+        self.quote.setText("等待连接\n行情已清空")
+        self.long_position.setText("多 —")
+        self.short_position.setText("空 —")
+        self.position.setText("持仓待核对")
+        self.notice.setText("重连后先查询对账")
+        self.footer.setText("已断开 · 外部委托可能仍有效")
+        self.mode_label.setText("已断开")
+        self.time_label.setText("--:--:--")
+        for button in (*self.order_buttons, self.cancel_button):
+            button.setEnabled(False)
+
+    def select_price(self, index):
+        ticks = self.model.price_at(index.row())
+        if ticks <= 0:
+            return
+        self.price.setValue(float(self.instrument.tick * ticks))
+
+    def price_action(self, index, right=False):
+        if not index.isValid():
+            return
+        self.select_price(index)
+        mode = self.click_mode.currentData()
+        if mode == "select" or not (self.controller.paper or self.controller.offline_mode):
+            return
+        if mode.startswith("columns"):
+            if right or index.column() == 1:
+                return
+            side = "买" if index.column() == 0 else "卖"
+        else:
+            side = "卖" if right else "买"
+        offset = "开仓" if mode.endswith("open") else "平仓"
+        button = self.order_buttons[(0 if offset == "开仓" else 2) + (0 if side == "买" else 1)]
+        if not button.isEnabled():
+            self.controller.log(button.toolTip() or "当前模拟交易未就绪")
+            return
+        self.submit(side, offset)
+
+    def set_follow(self, value):
+        self.model.follow = value
+        if value and self.model.snapshot:
+            self.model.update_snapshot(self.model.snapshot)
+
+    def recenter(self):
+        self.follow.setChecked(True)
+        self.set_follow(True)
+
+    def submit(self, side, offset):
+        try:
+            ticks = self.instrument.ticks(self.price.cleanText())
+            if self.controller.paper:
+                order = self.controller.paper.submit(self.instrument.key, side, offset, ticks, self.quantity.value(), self.group.value())
+                self.controller.log(f"{order.id} 在线模拟本地委托，等待真实行情撮合；未发送外部委托")
+            elif self.controller.external:
+                name = self.close_offset.currentText() if offset == "平仓" else offset
+                reference = self.controller.external.submit(self.instrument.key, side, name, ticks, self.quantity.value(), self.group.value())
+                self.controller.log(f"{reference} 外部委托已提交，等待接口回报")
+            else:
+                if not self.controller.offline_mode:
+                    raise ValueError("行情与交易已断开；请选择离线模拟或重连接口")
+                order = self.controller.ledger.submit(self.instrument.key, side, offset, ticks, self.quantity.value(), self.group.value())
+                self.controller.log(f"{order.id} {order.key} {side}{offset} {order.quantity}手，待模拟回报")
+            self.controller.refresh_records()
+        except (ValueError, ArithmeticError) as error:
+            QMessageBox.warning(self, "委托未提交", str(error))
+
+    def refresh(self, snapshot):
+        if self.controller.external:
+            self.refresh_external(snapshot)
+            return
+        self.model.real_mode = False
+        self.paper_button.hide()
+        self.click_mode.setEnabled(True)
+        self.banner.setFixedHeight(self.scaled(19))
+        for button in (*self.order_buttons, self.cancel_button):
+            button.setEnabled(True)
+        self.close_offset.setEnabled(True)
+        self.model.update_snapshot(snapshot)
+        self.refresh_marks()
+        self.follow.blockSignals(True)
+        self.follow.setChecked(self.model.follow)
+        self.follow.blockSignals(False)
+        self.banner.setText(snapshot.time)
+        self.banner.setToolTip(f"{snapshot.key} · 离线生成行情")
+        self.time_label.setText(snapshot.time)
+        self.mode_label.setText("离线模拟")
+        self.summary.setText(self.instrument.price(snapshot.last))
+        self.summary.setToolTip("模拟最新价；原版百分比字段口径待确认")
+        self.quote.setText(f"量 {snapshot.volume}\n深度 {self.instrument.depth} 档\n价位 {self.instrument.tick}")
+        positions = self.controller.ledger.positions
+        long = positions.get((snapshot.key, "买"))
+        short = positions.get((snapshot.key, "卖"))
+        self.long_position.setText(f"多 {long.quantity if long else 0}")
+        self.short_position.setText(f"空 {short.quantity if short else 0}")
+        self.position.setText(f"{long.quantity if long else 0}\n模拟持仓\n{short.quantity if short else 0}")
+
+    def refresh_external(self, snapshot):
+        was_real = self.model.real_mode
+        self.model.real_mode = True
+        self.banner.setFixedHeight(self.scaled(32))
+        session = self.controller.external
+        self.click_mode.setEnabled(bool(self.controller.paper))
+        self.paper_button.setVisible(not self.controller.paper and not session.config.td_front)
+        self.paper_button.setEnabled(not session.faulted and not self.controller.gateway.closing)
+        instrument = session.catalog.get(self.instrument.key, self.instrument)
+        if instrument != self.instrument:
+            self.instrument = instrument
+            self.model.instrument = instrument
+            self.contract_label.setText(instrument.key)
+            self.price.setDecimals(max(0, -instrument.tick.as_tuple().exponent))
+            self.price.setSingleStep(float(instrument.tick))
+        self.quantity.setMaximum(self.controller.ledger.max_order if self.controller.paper else session.config.max_order)
+        self.setWindowTitle(f"{self.instrument.key} [{self.controller.mode_name()}]")
+        self.mode_label.setText(self.controller.mode_name())
+        if snapshot:
+            if self.model.snapshot is None:
+                self.price.setValue(float(instrument.tick * snapshot.last))
+            self.model.update_snapshot(snapshot)
+            self.refresh_marks()
+            self.follow.blockSignals(True)
+            self.follow.setChecked(self.model.follow)
+            self.follow.blockSignals(False)
+            stale = time.monotonic() - snapshot.received_monotonic > session.config.stale_seconds
+            self.banner.setText(f"{'行情过期' if stale else '真实行情'}\n{snapshot.time}")
+            self.banner.setToolTip(f"{snapshot.key} · 交易日 {snapshot.trading_day}")
+            if stale:
+                self.banner.setToolTip(f"{snapshot.key} · 超过{session.config.stale_seconds}秒未收到新报价；可能休市或连接异常，请查看连接状态。最后行情时间 {snapshot.time}")
+            self.time_label.setText(snapshot.time)
+            self.summary.setText(instrument.price(snapshot.last))
+            self.summary.setToolTip("真实最新价；原版百分比字段口径待确认")
+            self.quote.setText(f"量 {snapshot.volume}\n深度 {len(snapshot.bids)}/{len(snapshot.asks)}\n价位 {instrument.tick}")
+        else:
+            if self.model.snapshot is not None or not was_real:
+                self.model.snapshot = None
+                self.model.dataChanged.emit(self.model.index(0, 0), self.model.index(self.model.rows - 1, 2))
+            self.banner.setText("等待有效真实行情")
+            self.banner.setToolTip(instrument.key)
+            self.time_label.setText("--:--:--")
+            self.summary.setText(instrument.name)
+            self.quote.setText("尚无有效报价")
+        self.close_offset.setEnabled(not self.controller.paper)
+        if self.controller.paper:
+            self.close_offset.setCurrentIndex(0)
+            try:
+                self.controller.paper.check_ready(instrument.key)
+                ready, reason = True, "只提交本地模拟委托，不发送外部委托"
+            except ValueError as error:
+                ready, reason = False, str(error)
+            for button in self.order_buttons:
+                button.setEnabled(ready and not self.controller.ledger.trading_error)
+                button.setToolTip(reason)
+            self.cancel_button.setEnabled(True)
+            self.cancel_button.setToolTip("撤销本合约的本地模拟挂单；空格仅撤当前组")
+            positions = self.controller.ledger.positions
+            long = positions.get((instrument.key, "买"))
+            short = positions.get((instrument.key, "卖"))
+            self.long_position.setText(f"多 {long.quantity if long else 0}")
+            self.short_position.setText(f"空 {short.quantity if short else 0}")
+            self.position.setText(f"{long.quantity if long else 0}\n模拟持仓\n{short.quantity if short else 0}")
+            self.notice.setText("真实行情 · 本地成交\n不含手续费/保证金\n空格撤本窗当前组\nF1–F10切组")
+            self.footer.setText("在线模拟" if ready else f"在线模拟\n{reason}")
+            return
+        connected = bool(session.config.td_front)
+        tradable = connected and session.config.environment == "simulation" and session.config.allow_orders and session.logged_in and session.settled and session.ready and not session.faulted
+        for button in self.order_buttons:
+            button.setEnabled(tradable and session.quote_fresh(instrument.key))
+            button.setToolTip("须启用外部模拟报单并完成结算、对账和有效行情检查" if connected else "仅看行情，未连接交易账户，不能下单")
+        self.cancel_button.setEnabled(connected and session.config.allow_orders and session.logged_in and session.settled and not session.faulted)
+        if not connected:
+            self.long_position.setText("多 —")
+            self.short_position.setText("空 —")
+            self.position.setText("—\n未查询持仓\n—")
+            self.notice.setText("仅看行情\n未连接交易账户\n不能下单")
+            self.footer.setText("仅看行情")
+            return
+        rows = [r for r in session.positions if f"{r.get('ExchangeID')}.{r.get('InstrumentID')}" == instrument.key]
+        long = sum(r['Position'] for r in rows if r['PosiDirection'] == '2')
+        short = sum(r['Position'] for r in rows if r['PosiDirection'] == '3')
+        self.long_position.setText(f"多 {long}")
+        self.short_position.setText(f"空 {short}")
+        self.position.setText(f"{long}\n接口持仓\n{short}")
+        self.notice.setText("接口回报驱动\n仅投机期货限价单\n未核验合约禁止交易")
+        self.footer.setText(f"{self.controller.mode_name()} · {session.td_status}")
+
+    def closeEvent(self, event):
+        event.accept()
+        if self.closing:
+            return
+        self.closing = True
+        if not self.controller.shutting_down:
+            if self in self.controller.windows:
+                self.controller.windows.remove(self)
+            if self.controller.external and self.controller.gateway and not self.controller.gateway.closing:
+                try:
+                    self.controller.external.release(self.instrument.key)
+                except ValueError as error:
+                    self.controller.log(f"窗口已关闭；退订失败：{error}")
+            self.controller.dom_closed(self.instrument.key)

@@ -1,0 +1,25 @@
+[project]
+name = "pytrade"
+version = "0.1.0rc1"
+description = "Cross-platform desktop client for Chinese futures market data and trading"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6==6.12.0",
+    "openctp-ctp==6.7.11.0 ; sys_platform != 'darwin'",
+    "openctp-ctp==6.7.7.1 ; sys_platform == 'darwin'",
+]
+
+[project.gui-scripts]
+pytrade = "pytrade.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
