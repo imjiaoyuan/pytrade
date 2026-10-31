@@ -17,8 +17,11 @@ _next_stamp = [0.0]
 
 
 def next_stamp():
-    _next_stamp[0] = max(time.monotonic(), _next_stamp[0] + 1e-6)
-    return _next_stamp[0]
+    current = time.monotonic()
+    while current <= _next_stamp[0]:
+        current = time.monotonic()
+    _next_stamp[0] = current
+    return current
 
 
 class FakeGateway:
