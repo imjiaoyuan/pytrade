@@ -31,6 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo localedef -i zh_CN -f GB18030 --no-archive /usr/lib/locale/zh_CN.GB18030 || true
+          mkdir -p .runtime/locale
           localedef -i zh_CN -f GB18030 --no-archive .runtime/locale/zh_CN.GB18030
       - name: Install dependencies
         run: |
@@ -59,6 +60,7 @@ jobs:
       - name: Build zh_CN.GB18030 locale
         run: |
           sudo localedef -i zh_CN -f GB18030 --no-archive /usr/lib/locale/zh_CN.GB18030 || true
+          mkdir -p .runtime/locale
           localedef -i zh_CN -f GB18030 --no-archive .runtime/locale/zh_CN.GB18030
           localedef -i zh_CN -f GB18030 --no-archive packaging/pyinstaller/locale/zh_CN.GB18030
           sudo chmod -R a+rX packaging/pyinstaller/locale

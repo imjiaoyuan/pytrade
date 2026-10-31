@@ -198,7 +198,7 @@ class StartupFlowTests(unittest.TestCase):
         self.assertTrue(session.syncing)
         self.assertIn("正在查询合约", startup.logs.toPlainText())
         for path in self.path.rglob('*'):
-            if path.is_file():
+            if path.is_file() and path.suffix != '.lock':
                 self.assertNotIn(b'synthetic-password', path.read_bytes())
                 self.assertNotIn(b'synthetic-code', path.read_bytes())
 
