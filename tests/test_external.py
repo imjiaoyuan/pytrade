@@ -13,6 +13,14 @@ from pytrade.domain import Instrument
 from pytrade.external import ConnectionConfig, ExternalSession, normalize_quote, order_key, redact
 
 
+_next_stamp = [0.0]
+
+
+def next_stamp():
+    _next_stamp[0] = max(time.monotonic(), _next_stamp[0] + 1e-6)
+    return _next_stamp[0]
+
+
 class FakeGateway:
     def __init__(self):
         self.commands = []
@@ -46,6 +54,12 @@ class ExternalTests(unittest.TestCase):
         self.session.handle(dict(kind="subscription", epoch=1, key="SHFE.au2612", error=0))
         self.feed_quote()
 
+    def tearDown(self):
+        try:
+            self.session.close()
+        except (ValueError, OSError, AttributeError):
+            pass
+
     def finish_sync(self, instruments=False, positions=None, orders=None):
         session = self.session
         if not session.syncing:
@@ -60,7 +74,7 @@ class ExternalTests(unittest.TestCase):
         session.handle(dict(kind="sync_done", cycle=cycle))
 
     def feed_quote(self, row=None, epoch=1):
-        self.session.handle(dict(kind="quote", key="SHFE.au2612", epoch=epoch, row=row or quote(), received=time.monotonic()))
+        self.session.handle(dict(kind="quote", key="SHFE.au2612", epoch=epoch, row=row or quote(), received=next_stamp()))
 
     def submit(self, side="买", offset="开仓", quantity=1):
         return self.session.submit("SHFE.au2612", side, offset, 45833, quantity)
@@ -314,7 +328,7 @@ class ExternalTests(unittest.TestCase):
             self.session.journal_path = path
             key = self.submit()
             self.session.flush()
-            stored = path.read_text()
+            stored = path.read_text(encoding="utf-8")
             self.assertNotIn("test-secret", stored)
             self.assertNotIn("testuser", stored)
             self.session.close()
@@ -455,9 +469,9 @@ class ExternalTests(unittest.TestCase):
             self.assertIn(order_key(unknown), session.orders)
             archives = list((path.parent / 'archive').glob('*.json'))
             self.assertEqual(len(archives), 1)
-            archived = json.loads(archives[0].read_text())
+            archived = json.loads(archives[0].read_text(encoding="utf-8"))
             self.assertIn(order_key(old), archived['orders'])
-            self.assertNotIn(order_key(old), json.loads(path.read_text())['orders'])
+            self.assertNotIn(order_key(old), json.loads(path.read_text(encoding="utf-8"))['orders'])
             session.close()
 
 

@@ -43,8 +43,8 @@ class ReleaseSupportTests(unittest.TestCase):
     def test_source_resources_and_compiled_resource_root(self):
         self.assertTrue(all(path.exists() for path in required_resources()))
         with patch('sys.frozen', True, create=True), patch('sys.argv', ['/tmp/standalone/PyTrade.exe']), patch('sys.executable', '/tmp/standalone/PyTrade.exe', create=True):
-            self.assertEqual(application_root(), Path('/tmp/standalone'))
-            self.assertEqual(reference_path('original_dom_spec.json'), Path('/tmp/standalone/data/original_dom_spec.json'))
+            self.assertEqual(application_root(), Path('/tmp/standalone').resolve())
+            self.assertEqual(reference_path('original_dom_spec.json'), (Path('/tmp/standalone') / 'data' / 'original_dom_spec.json').resolve())
 
     def test_bundle_rejects_mixed_architecture_and_personal_state(self):
         module = load_validator()
@@ -155,7 +155,7 @@ class PersistenceBoundaryTests(unittest.TestCase):
                 writer.close()
             second = Journal(path)
             second.close()
-            self.assertIn('first', json.loads(path.read_text())['orders'])
+            self.assertIn('first', json.loads(path.read_text(encoding="utf-8"))['orders'])
 
     def test_corrupt_top_level_journal_is_rejected(self):
         from pytrade.records import load_journal
@@ -174,10 +174,10 @@ class PersistenceBoundaryTests(unittest.TestCase):
             writer.archive(dict(version=2, orders={'old': {}}, trades={}), '20261030')
             writer.submit(dict(version=2, orders={}, trades={}))
             writer.close()
-            self.assertEqual(json.loads(path.read_text())['orders'], {})
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))['orders'], {})
             archives = list((path.parent / 'archive').glob('*.json'))
             self.assertEqual(len(archives), 1)
-            self.assertIn('old', json.loads(archives[0].read_text())['orders'])
+            self.assertIn('old', json.loads(archives[0].read_text(encoding="utf-8"))['orders'])
 
     def test_risk_state_is_independent_of_future_allocations(self):
         book = RiskBook()

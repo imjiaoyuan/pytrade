@@ -8,6 +8,14 @@ from pytrade.external import ConnectionConfig, ExternalSession
 from pytrade.paper import PaperSimulator
 
 
+_next_stamp = [0.0]
+
+
+def next_stamp():
+    _next_stamp[0] = max(time.monotonic(), _next_stamp[0] + 1e-6)
+    return _next_stamp[0]
+
+
 class Gateway:
     closing = False
 
@@ -34,7 +42,7 @@ class PaperTests(unittest.TestCase):
     def feed(self, **changes):
         row = dict(LastPrice="916.66", BidPrice1="916.64", BidVolume1=3, AskPrice1="916.68", AskVolume1=3, UpperLimitPrice="1000", LowerLimitPrice="800", TradingDay="20261030", UpdateTime="10:00:00", Volume=1)
         row.update(changes)
-        self.session.handle(dict(kind="quote", epoch=self.session.md_epoch, key=self.key, received=time.monotonic(), row=row))
+        self.session.handle(dict(kind="quote", epoch=self.session.md_epoch, key=self.key, received=next_stamp(), row=row))
         snapshot = self.session.snapshots.get(self.key)
         return self.paper.accept(snapshot, self.session.md_epoch) if snapshot else False
 

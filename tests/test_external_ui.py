@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,6 +14,14 @@ from PySide6.QtWidgets import QApplication
 from pytrade.app import Controller
 from pytrade.connection_ui import ConnectionDialog
 from pytrade.external import ConnectionConfig
+
+
+_next_stamp = [0.0]
+
+
+def next_stamp():
+    _next_stamp[0] = max(time.monotonic(), _next_stamp[0] + 1e-6)
+    return _next_stamp[0]
 
 
 class FakeGateway(QObject):
@@ -72,8 +81,7 @@ class ExternalUiTests(unittest.TestCase):
         self.controller.advance()
 
     def paper_quote(self):
-        import time
-        self.controller.gateway.event.emit(dict(kind="quote", epoch=1, key="SHFE.ag2612", received=time.monotonic(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=3, AskPrice1=12521, AskVolume1=3, Volume=1, TradingDay="20261030", UpdateTime="10:00:00", UpperLimitPrice=20000, LowerLimitPrice=10000)))
+        self.controller.gateway.event.emit(dict(kind="quote", epoch=1, key="SHFE.ag2612", received=next_stamp(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=3, AskPrice1=12521, AskVolume1=3, Volume=1, TradingDay="20261030", UpdateTime="10:00:00", UpperLimitPrice=20000, LowerLimitPrice=10000)))
 
     def test_online_paper_buttons_fill_locally_without_generated_quotes_or_trader_commands(self):
         sequence = self.controller.simulator.sequence
@@ -251,8 +259,7 @@ class ExternalUiTests(unittest.TestCase):
         gateway = self.controller.gateway
         gateway.event.emit(dict(kind="md_state", epoch=1, status="登录成功"))
         gateway.event.emit(dict(kind="subscription", epoch=1, key="SHFE.ag2612", error=0))
-        import time
-        gateway.event.emit(dict(kind="quote", key="SHFE.ag2612", epoch=1, received=time.monotonic(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=2, AskPrice1=12520, AskVolume1=3, Volume=5, TradingDay="20261030", ActionDay="20261029", UpdateTime="21:00:01")))
+        gateway.event.emit(dict(kind="quote", key="SHFE.ag2612", epoch=1, received=next_stamp(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=2, AskPrice1=12520, AskVolume1=3, Volume=5, TradingDay="20261030", ActionDay="20261029", UpdateTime="21:00:01")))
         self.controller.advance()
         window = self.controller.windows[0]
         self.assertEqual(window.model.snapshot.last, 12520)
@@ -307,12 +314,11 @@ class ExternalUiTests(unittest.TestCase):
         self.assertEqual(self.controller.geometry().getRect(), geometry)
 
     def test_identical_market_snapshot_does_not_repaint_whole_ladder(self):
-        import time
         self.controller.start_external(ConnectionConfig(md_front="tcp://127.0.0.1:1"))
         gateway = self.controller.gateway
         gateway.event.emit(dict(kind="md_state", epoch=1, status="登录成功"))
         gateway.event.emit(dict(kind="subscription", epoch=1, key="SHFE.ag2612", error=0))
-        gateway.event.emit(dict(kind="quote", epoch=1, key="SHFE.ag2612", received=time.monotonic(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=2, AskPrice1=12520, AskVolume1=3, Volume=5, TradingDay="20261030", UpdateTime="15:00:00")))
+        gateway.event.emit(dict(kind="quote", epoch=1, key="SHFE.ag2612", received=next_stamp(), row=dict(LastPrice=12520, BidPrice1=12519, BidVolume1=2, AskPrice1=12520, AskVolume1=3, Volume=5, TradingDay="20261030", UpdateTime="15:00:00")))
         self.controller.advance()
         window = self.controller.windows[0]
         spy = QSignalSpy(window.model.dataChanged)
@@ -342,7 +348,7 @@ class ExternalUiTests(unittest.TestCase):
         dialog.fields["app_id"].setText("app")
         dialog.fields["auth_code"].setText("private-auth")
         dialog.accept_config()
-        saved = (self.path / "connection.json").read_text()
+        saved = (self.path / "connection.json").read_text(encoding="utf-8")
         for value in ("private-user", "private-password", "private-auth", "allow_orders"):
             self.assertNotIn(value, saved)
         reopened = ConnectionDialog(self.path, self.controller)
@@ -362,7 +368,7 @@ class ExternalUiTests(unittest.TestCase):
         self.assertFalse(dialog.config.app_id)
         self.assertFalse(dialog.config.allow_orders)
         self.assertEqual(dialog.config.market_credentials(), ("md-broker", "md-private-user", "md-private-password"))
-        saved = (self.path / "connection.json").read_text()
+        saved = (self.path / "connection.json").read_text(encoding="utf-8")
         self.assertNotIn("md-private-user", saved)
         self.assertNotIn("md-private-password", saved)
 
@@ -377,7 +383,7 @@ class ExternalUiTests(unittest.TestCase):
         dialog.accept_config()
         self.assertEqual(dialog.config.market_credentials(), ("md-broker", "md-user", "md-password"))
         self.assertEqual((dialog.config.broker, dialog.config.user, dialog.config.password), ("td-broker", "td-user", "td-password"))
-        saved = (self.path / "connection.json").read_text()
+        saved = (self.path / "connection.json").read_text(encoding="utf-8")
         for value in ("md-user", "md-password", "td-user", "td-password"):
             self.assertNotIn(value, saved)
 

@@ -34,7 +34,7 @@ class ConfigurationRecordsTests(unittest.TestCase):
             self.assertEqual(store.effective().row_height, 13)
             with self.assertRaises(ValueError):
                 store.set_overrides(dict(font='test', row_height=14, dom_height=900, wheel_steps=3))
-            self.assertEqual(path.read_text(), '{broken')
+            self.assertEqual(path.read_text(encoding="utf-8"), '{broken')
 
     def test_journal_ordering_and_migration_backup(self):
         with TemporaryDirectory() as directory:
@@ -48,7 +48,7 @@ class ConfigurationRecordsTests(unittest.TestCase):
                 for number in range(20):
                     journal.submit(dict(version=2, orders={'last': number}, trades={}))
                 journal.flush()
-                self.assertEqual(json.loads(path.read_text())['orders']['last'], 19)
+                self.assertEqual(json.loads(path.read_text(encoding="utf-8"))['orders']['last'], 19)
                 self.assertEqual(journal.written, 20)
             finally:
                 journal.close()
