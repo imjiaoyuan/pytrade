@@ -2,7 +2,7 @@
 
 Cross-platform desktop client for Chinese futures market data and trading, rebuilt with Python 3.12 + PySide6 + CTP (openctp-ctp).
 
-![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/jiaoyuan/pytrade/actions/workflows/ci.yml/badge.svg)
 
 ## Status
 
