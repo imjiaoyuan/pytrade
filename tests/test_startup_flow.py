@@ -137,6 +137,27 @@ class StartupFlowTests(unittest.TestCase):
         self.assertFalse(startup.password.text())
         self.assertIsNone(startup.settings_config)
 
+    def test_inactive_trade_account_is_distinct_from_successful_market_login(self):
+        startup = self.flow.startup
+        startup.mode.setCurrentIndex(startup.mode.findData("simulation"))
+        startup.front.setText("tcp://127.0.0.1:10001")
+        startup.settings_config = ConnectionConfig(md_front=startup.front.text(), td_front="tcp://127.0.0.1:10002", broker="synthetic", user="synthetic-investor", password="synthetic-password")
+        startup.password.setText("synthetic-password")
+        startup.trade_fronts.setRowCount(1)
+        startup.login_button.click()
+        controller = self.flow.controller
+        controller.gateway.event.emit(dict(kind="md_state", epoch=1, status="登录成功，等待订阅行情"))
+        self.assertTrue(startup.isVisible())
+        controller.gateway.event.emit(dict(kind="error", channel="td", error_id=4, message="CTP:用户不活跃"))
+        self.assertTrue(controller.gateway.closing)
+        for _ in range(3):
+            self.app.processEvents()
+        self.assertIn("账户不活跃", startup.trade_fronts.item(0, 1).text())
+        self.assertIn("行情已登录", startup.logs.toPlainText())
+        self.assertFalse(controller.isVisible())
+        self.assertIsNone(controller.contract_selector)
+        self.assertIsNone(controller.paper)
+
     def test_market_anonymous_selection_does_not_reuse_account_credentials(self):
         startup = self.flow.startup
         startup.mode.setCurrentIndex(startup.mode.findData("market"))
@@ -148,6 +169,22 @@ class StartupFlowTests(unittest.TestCase):
         self.assertTrue(config.md_anonymous)
         self.assertEqual(config.market_credentials(), ("", "", ""))
         self.assertFalse(config.td_front)
+
+    def test_changed_market_address_cannot_receive_previous_service_credentials(self):
+        startup = self.flow.startup
+        startup.mode.setCurrentIndex(startup.mode.findData("market"))
+        startup.settings_config = ConnectionConfig(md_front="tcp://127.0.0.1:10001", broker="synthetic", user="synthetic-user", password="synthetic-password")
+        startup.md_anonymous.setChecked(False)
+        startup.front.setText("tcp://127.0.0.1:10002")
+        with patch("pytrade.startup.QMessageBox.warning") as warning:
+            startup.login()
+        warning.assert_called_once()
+        self.assertIsNone(self.flow.controller)
+        startup.md_anonymous.setChecked(True)
+        startup.login()
+        config = self.flow.controller.external.config
+        self.assertEqual(config.md_front, "tcp://127.0.0.1:10002")
+        self.assertEqual(config.market_credentials(), ("", "", ""))
 
     def test_market_mode_uses_independent_market_account_after_mode_switch(self):
         startup = self.flow.startup

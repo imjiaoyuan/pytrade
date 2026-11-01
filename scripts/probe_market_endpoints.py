@@ -12,6 +12,7 @@ from pathlib import Path
 import socket
 import time
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit
 
 
 def probe(entry):
@@ -30,11 +31,16 @@ def probe(entry):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--catalog", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    tree = ET.parse(root / "reference_materials/original_software/HQAddress.xml")
-    entries = [(e.attrib["Name"], e.text.strip(), int(e.attrib["Port"]))
-               for e in tree.getroot().findall("Address")]
+    if args.catalog:
+        services = json.loads(args.catalog.read_text(encoding="utf-8"))["services"]
+        entries = [(row["name"], urlsplit(row["front"]).hostname, urlsplit(row["front"]).port) for row in services]
+    else:
+        tree = ET.parse(root / "reference_materials/original_software/HQAddress.xml")
+        entries = [(e.attrib["Name"], e.text.strip(), int(e.attrib["Port"]))
+                   for e in tree.getroot().findall("Address")]
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(probe, entries))
     report = {"checked_at_utc": datetime.now(timezone.utc).isoformat(),

@@ -61,6 +61,8 @@ def diagnostics(native=False):
     resources = {str(path.relative_to(path.parents[1])): path.is_file() for path in required_resources()}
     report = dict(version=1, generated_at_utc=datetime.now(timezone.utc).isoformat(), application_version=VERSION, channel=CHANNEL, system=platform.system(), system_version=platform.release(), python=platform.python_version(), bits=struct.calcsize("P") * 8, qt=qVersion(), resources=resources, network_used=False, capabilities=dict(offline=True, market=True, external_simulation="requires local account and acceptance", live_orders=False, hosted_stop_provider=False, original_advanced_controls=False))
     report["capabilities"]["paper_trading"] = "real market plus local limit matching; no trader API"
+    report["capabilities"]["local_order_types"] = ["GFD", "FAK", "FOK"]
+    report["capabilities"]["local_algorithms"] = ["net_offset", "best_limit", "sniper", "conditional_order", "two_leg_spread"]
     if native:
         report["native"] = check_native()
     report["ok"] = all(resources.values()) and report["bits"] == 64 and (not native or report["native"]["ok"])

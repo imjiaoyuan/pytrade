@@ -3,7 +3,7 @@ import unittest
 from dataclasses import replace
 from decimal import Decimal
 
-from pytrade.domain import CATALOG, Ledger, Status
+from pytrade.domain import CATALOG, Fill, Ledger, Status
 from pytrade.external import ConnectionConfig, ExternalSession
 from pytrade.paper import PaperSimulator
 
@@ -62,6 +62,54 @@ class PaperTests(unittest.TestCase):
         self.assertEqual(order.status, Status.FILLED)
         self.assertEqual(self.ledger.positions[(self.key, "买")].quantity, 2)
         self.assertTrue(all(command["command"] == "subscriptions" for command in self.gateway.commands))
+
+    def test_fok_waits_for_new_quotes_and_does_not_use_consumed_liquidity(self):
+        first = self.submit(2)
+        self.feed()
+        self.feed()
+        fok = self.paper.submit(self.key, "买", "开仓", 45835, 2, order_type="FOK")
+        self.feed()
+        self.assertEqual(fok.status, Status.WORKING)
+        self.feed()
+        self.assertEqual((fok.status, fok.filled), (Status.CANCELED, 0))
+        self.assertEqual(first.filled, 2)
+
+    def test_fak_partially_fills_and_never_matches_remaining_on_later_quotes(self):
+        fak = self.paper.submit(self.key, "买", "开仓", 45835, 5, order_type="FAK")
+        self.feed()
+        self.feed()
+        self.assertEqual((fak.status, fak.filled), (Status.CANCELED, 3))
+        self.feed(AskVolume1=10)
+        self.assertEqual(fak.filled, 3)
+
+    def seed_short(self):
+        order = self.ledger.submit(self.key, "卖", "开仓", 45832, 2)
+        self.ledger.acknowledge(order.id)
+        self.ledger.apply_fill(Fill("seed", order.id, self.key, "卖", "开仓", 45832, 2))
+
+    def test_net_dependent_open_waits_until_close_completes(self):
+        self.seed_short()
+        close = self.paper.submit(self.key, "买", "平仓", 45835, 2)
+        opening = self.paper.submit(self.key, "买", "开仓", 45835, 1, after_order=close.id)
+        self.feed(AskVolume1=1)
+        self.feed(AskVolume1=1)
+        self.assertEqual(close.filled, 1)
+        self.assertEqual(opening.status, Status.PENDING)
+        self.feed(AskVolume1=2)
+        self.assertEqual(close.status, Status.FILLED)
+        self.assertEqual(opening.status, Status.WORKING)
+        self.assertEqual(opening.filled, 0)
+        self.feed(AskVolume1=2)
+        self.assertEqual(opening.filled, 1)
+
+    def test_net_dependent_open_cancels_if_fak_close_only_partially_fills(self):
+        self.seed_short()
+        close = self.paper.submit(self.key, "买", "平仓", 45835, 2, order_type="FAK")
+        opening = self.paper.submit(self.key, "买", "开仓", 45835, 1, after_order=close.id)
+        self.feed(AskVolume1=1)
+        self.feed(AskVolume1=1)
+        self.assertEqual((close.status, close.filled), (Status.CANCELED, 1))
+        self.assertEqual((opening.status, opening.filled), (Status.CANCELED, 0))
 
     def test_displayed_liquidity_shared_fifo_and_unchanged_book_not_reused(self):
         first = self.submit(2, 1)

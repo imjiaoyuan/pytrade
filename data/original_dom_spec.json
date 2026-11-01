@@ -50,20 +50,20 @@
     {
       "control": "A/B及1/2",
       "observed": "单选及数字按钮",
-      "semantics": null,
-      "status": "disabled_pending_evidence"
+      "semantics": "见 latest_layout_reference.local_algo_mapping；左右手数独立，右键默认禁用。",
+      "status": "implemented_local_vnpy_mapping_original_unverified"
     },
     {
       "control": "FOK、OnlyOpen",
       "observed": "复选框标签",
       "semantics": null,
-      "status": "disabled_pending_evidence"
+      "status": "local_simulation_only_original_rules_unverified"
     },
     {
       "control": "Pt/Fct、CntrbySprd、Chg Nearby、M-OrderX",
       "observed": "参数与选项标签",
-      "semantics": null,
-      "status": "disabled_pending_evidence"
+      "semantics": "见 latest_layout_reference.local_algo_mapping；左右手数独立，右键默认禁用。",
+      "status": "implemented_local_vnpy_mapping_original_unverified"
     },
     {
       "control": "快捷键及批量操作",
@@ -73,10 +73,12 @@
     }
   ],
   "application_rules": [
-    "当前黄色表示最新价，红色按卖一及以上、蓝色按买一及以下显示；均为原型规则，原版口径未核验",
-    "当前顶部绿色区域显示最新价，不伪造原版百分比",
-    "当前价格选择通过单击，双击居中，滚轮移动价梯；不宣称原版交易点击语义一致",
-    "原版语义未确认的控件保持禁用；普通限价报单使用明确命名的买开、卖开、买平、卖平按钮"
+    "当前采用用户偏好的旧版宽DOM、浅灰侧栏、红买量/绿卖量、浅色价格列、黄色最新价；不代表原EXE外观验收",
+    "涨跌幅按昨结算价计算，总持仓及增减仓按行情字段显示；原版精确统计口径未核验",
+    "单击选价、双击居中；可显式选择本地模拟鼠标交易，左右键手数独立且右键默认禁用",
+    "本地模拟提供标准GFD/FAK/FOK及先平后开净仓，外部交易仍仅GFD，原版A/B未映射",
+    "近价、白格单锁、涨跌停锁和挂单锁为本窗模拟规则；独立策略及双腿价差另有明确条件，不等同于原版CntrbySprd或M-OrderX",
+    "成交标记使用实际成交价，部分成交同时保留挂单与成交；原版标记样式及统计范围仍待核对"
   ],
   "runtime_verification": "在Windows运行原EXE副本；记录动作前后窗口、价格、委托和持仓结果；资料含个人信息，公开前脱敏",
   "static_dom_resource": "static_dom_controls_20261030.json",
@@ -87,5 +89,28 @@
     "CBBGDS": "白格单锁",
     "CBcjflag": "成交标识",
     "LBKP": "P"
+  },
+  "latest_layout_reference": {
+    "date": "2026-11-01",
+    "source": "reference_materials/annotated_dom_20261101/user_annotated_reference.jpg",
+    "source_kind": "用户完整标注图与明确还原要求，覆盖此前宽版红绿DOM视觉偏好",
+    "layout": "浅蓝窄侧栏、灰色数量区、中央卖红/空档灰/买蓝价格列；按图重排统计、手数、控制项、分组、精度、计数、净持仓与P标识",
+    "implemented_behavior": "本地模拟可明确选择红区卖/蓝区买，灰区仅选价；顶部加减改显示步长，不改变交易tick；下单与额外工具可展开；按用户后续要求启用vn.py本地算法映射：A最优价、B狙击、CntrbySprd双腿价差、M-OrderX条件触发，非原EXE算法等价声明。",
+    "full_original_behavior_verified": false,
+    "unverified": [
+      "ChgOrder(A/B)算法",
+      "CntrbySprd及Pt/Fctr公式和锁定范围",
+      "M-OrderX行为",
+      "黑线按最新价绘制，原版定位未验证",
+      "P/O反映本地仅开仓开关，原版切换规则未验证",
+      "近价、白格、涨跌停及485/4000计数规则为本地实现，尚非原版运行验收"
+    ],
+    "local_algo_mapping": {
+      "A": "BestLimit：同侧最优价，变价撤回后再挂，受限价约束",
+      "B": "Sniper：对手价格满足限价时按一档可见数量挂单",
+      "CntrbySprd": "A−Fctr×B，Pt为阈值；主动腿实际整份成交后补另一腿；支持明确开仓和平仓",
+      "M-OrderX": "Stop：达到选定触发价后按对手价发一次限价单",
+      "scope": "仅本地模拟，所有DOM算法发送时复核本窗锁定和账本风险；外部禁用"
+    }
   }
 }

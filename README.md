@@ -6,7 +6,7 @@ Cross-platform desktop client for Chinese futures market data and trading, rebui
 
 ## Status
 
-Preview (0.1.0rc1). Real market data works; external order routing is not yet validated against a live broker account. See [Scope](#scope).
+Preview (0.1.0rc1). Market feeds have passed historical checks; current availability varies by provider. External order routing is not yet validated against a broker account. See [Scope](#scope).
 
 ## Platforms
 
@@ -41,6 +41,12 @@ Or install it system-wide (`/usr/lib/locale`). The app auto-detects the bundled 
 
 Credentials are kept in memory only; nothing is written to config, logs, or the repository.
 
+Local simulation supports GFD/FAK/FOK orders, close-before-open net orders, best-limit and sniper algorithms, conditional orders, and two-leg synthetic spreads. Open **配置 / 工具 → 本地策略 / 双腿价差** to manage algorithms. Legs execute separately and can leave unmatched positions; these algorithms never send external orders.
+
+Use **SimNow 快速配置…** on the login page to fill a trading-hours or 7×24 reference preset. Enter your own InvestorID and account password locally; applying a preset does not connect or enable external orders. Confirm current endpoint details in your SimNow console. Use **清除连接配置** to remove the saved connection parameters and session credentials, or **只接行情，改用在线模拟** to use market data with local matching instead of a trading account.
+
+The login page can check all market TCP endpoints in the background. A reachable port is not a successful CTP login or a verified feed, and historical success does not imply current availability.
+
 ## Build (PyInstaller onedir)
 
 ```bash
@@ -67,8 +73,10 @@ PYTHONPATH=src python -m unittest discover -s tests
 
 - Market data verified against several CTP fronts (1/5 depth observed).
 - External order routing (simulation broker account) not yet integration-tested; live order placement is disabled.
-- Unknown behaviors of the reference client are intentionally disabled (FOK, spread orders, A/B buttons).
+- The narrow DOM provides explicit local algorithm mappings: A = best-limit, B = sniper, CntrbySprd = two-leg spread, and M-OrderX = conditional order. These mappings are available in offline and online local simulation; equivalence to the reference client's algorithms remains unverified. Spread positions can be opened or closed, with both legs checked before starting a close task.
 
 ## License
 
 MIT. Bundled sound files are from the original reference software package.
+
+Selected trading algorithms adapt MIT-licensed [VeighNa/vn.py](https://github.com/vnpy/vnpy) modules. Copyright notices and source commits are retained in [assets/third_party/vnpy](assets/third_party/vnpy).

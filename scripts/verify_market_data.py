@@ -34,7 +34,7 @@ def clean(value):
 
 
 class MarketProbe(mdapi.CThostFtdcMdSpi):
-    def __init__(self, front, instruments, flow):
+    def __init__(self, front, instruments, flow, test_api=False):
         super().__init__()
         self.front = front
         self.instruments = instruments
@@ -46,7 +46,8 @@ class MarketProbe(mdapi.CThostFtdcMdSpi):
         self.quote_times = {}
         self.changed_quotes = Counter()
         self.login_attempted = False
-        self.api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(str(flow) + "/")
+        args = (str(flow) + "/", False, False, False) if test_api else (str(flow) + "/",)
+        self.api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(*args)
         self.api.RegisterSpi(self)
         self.api.RegisterFront(front)
 
@@ -125,6 +126,7 @@ def main():
     parser.add_argument("--duration", type=float, default=25)
     parser.add_argument("--instruments", nargs="+", default=["ag2612", "au2612", "rb2701"])
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--test-api", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.duration <= 60:
         parser.error("duration must be between 1 and 60 seconds")
@@ -134,7 +136,7 @@ def main():
     for i, front in enumerate(args.front):
         flow = root / ".runtime" / f"md_{time.time_ns()}_{i}"
         flow.mkdir(parents=True)
-        probe = MarketProbe(front, args.instruments, flow)
+        probe = MarketProbe(front, args.instruments, flow, args.test_api)
         probes.append(probe)
         probe.api.Init()
     print("Market-only verification started:", args.front, flush=True)
@@ -143,6 +145,7 @@ def main():
               "api_version": mdapi.CThostFtdcMdApi.GetApiVersion(),
               "scope": "Market API only; one empty-credential login per front; no trading API",
               "duration_seconds": args.duration,
+              "test_api": args.test_api,
               "results": [probe.snapshot() for probe in probes]}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n")

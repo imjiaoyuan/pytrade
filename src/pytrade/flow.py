@@ -14,6 +14,7 @@ class ApplicationFlow:
         self.connecting = False
         self.md_logged_in = False
         self.trade_queried = False
+        self.trade_failure = ""
         self.quitting = False
         self.startup = StartupWindow(state_dir, trial_state or current_trial_state(Path(state_dir)))
         self.startup.offline_requested.connect(self.enter_offline)
@@ -54,7 +55,7 @@ class ApplicationFlow:
             return
         session = self.controller.external
         self.startup.statusBar().showMessage(f"行情：{session.md_status}　交易：{session.td_status}")
-        if "超时" in session.md_status or "超时" in session.td_status:
+        if session.md_status.startswith("连接/登录超时") or session.td_status.startswith("连接/认证/登录超时"):
             self.startup.log("CTP 连接或登录回调等待超时，本次连接将取消。TCP 可达不代表服务可用；请核对行情服务，匿名服务无需填写交易账号。")
             self.cancel_login()
 
@@ -72,6 +73,7 @@ class ApplicationFlow:
         self.connecting = True
         self.md_logged_in = False
         self.trade_queried = False
+        self.trade_failure = ""
         controller.start_external(config)
         if controller.gateway is None:
             self.connecting = False
@@ -101,7 +103,13 @@ class ApplicationFlow:
             self.startup.update_trade_status(session.td_status)
             self.startup.log(f"交易：{session.td_status}")
         elif kind in {"fatal", "error"}:
-            self.startup.log("本次登录未完成，请检查日志；连接取消后可以修改配置重试。")
+            if event.get("channel") == "td":
+                self.trade_failure = "账户不活跃，交易未就绪（连接已结束后可重试）" if event.get("error_id") == 4 else "交易失败，请检查日志（连接结束后可重试）"
+                self.startup.update_trade_status(self.trade_failure)
+                market = "行情已登录，尚需订阅回调验证合约行情。" if self.md_logged_in else "行情登录状态请查看独立回调。"
+                self.startup.log(f"交易登录或查询未完成；{market}当前模式要求行情与交易均就绪，将结束本次连接。只需行情和本地撮合时，可切换在线模拟并选择允许空凭据的行情源。")
+            else:
+                self.startup.log("本次登录未完成，请检查日志；连接取消后可以修改配置重试。")
             self.cancel_login()
             return
         trade_required = bool(session.config.td_front)
@@ -128,7 +136,7 @@ class ApplicationFlow:
             self.startup.set_busy(False)
 
     def connection_stopped(self):
-        self.startup.update_trade_status("已断开，可重新登录")
+        self.startup.update_trade_status(self.trade_failure or "已断开，可重新登录")
         if self.connecting:
             self.connecting = False
             self.startup.set_busy(False)
@@ -136,6 +144,9 @@ class ApplicationFlow:
 
     def return_to_login(self):
         controller = self.controller
+        controller.local_algos.suspend("返回首页")
+        if controller.strategies_dialog is not None:
+            controller.strategies_dialog.hide()
         controller.timer.stop()
         if controller.contract_selector:
             controller.contract_selector.hide()

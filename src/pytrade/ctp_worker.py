@@ -11,7 +11,7 @@ from .protocol import VERSION, command_message
 
 
 FIELDS = {
-    "quote": ("InstrumentID", "ExchangeID", "TradingDay", "ActionDay", "UpdateTime", "UpdateMillisec", "LastPrice", "Volume", "UpperLimitPrice", "LowerLimitPrice") + tuple(f"{side}{field}{level}" for level in range(1, 6) for side in ("Bid", "Ask") for field in ("Price", "Volume")),
+    "quote": ("InstrumentID", "ExchangeID", "TradingDay", "ActionDay", "UpdateTime", "UpdateMillisec", "LastPrice", "Volume", "UpperLimitPrice", "LowerLimitPrice", "PreSettlementPrice", "OpenInterest", "PreOpenInterest") + tuple(f"{side}{field}{level}" for level in range(1, 6) for side in ("Bid", "Ask") for field in ("Price", "Volume")),
     "instruments": ("InstrumentID", "ExchangeID", "InstrumentName", "PriceTick", "VolumeMultiple", "ExpireDate", "IsTrading", "ProductClass", "MaxLimitOrderVolume", "MinLimitOrderVolume"),
     "orders": ("InstrumentID", "ExchangeID", "FrontID", "SessionID", "OrderRef", "OrderSysID", "Direction", "CombOffsetFlag", "CombHedgeFlag", "LimitPrice", "VolumeTotalOriginal", "VolumeTraded", "OrderStatus", "OrderSubmitStatus", "StatusMsg", "TradingDay", "SequenceNo", "InsertTime"),
     "trades": ("InstrumentID", "ExchangeID", "OrderRef", "OrderSysID", "TradeID", "TradingDay", "Direction", "OffsetFlag", "HedgeFlag", "Price", "Volume", "TradeTime"),
@@ -318,7 +318,10 @@ class Engine:
 
     def response_error(self, info, channel):
         if info and info.ErrorID:
-            self.emit("error", channel=channel, message=f"{channel} 接口错误 {info.ErrorID}: {redact(info.ErrorMsg, self.config)}")
+            detail = "；CTP 前置握手解码失败，请核对 SDK 版本及服务要求的生产/测评 API 模式，尚不能判断为账号密码错误" if info.ErrorID == 4040 else ""
+            if channel == "td" and info.ErrorID == 4:
+                detail = "；交易账户被前置判定为不活跃，不表示行情服务器不可用。请核对 InvestorID、账户启用状态及所选环境的同步情况，具体原因以服务方为准；仅接行情或本地撮合可选择在线模拟并使用允许空凭据的行情源"
+            self.emit("error", channel=channel, error_id=info.ErrorID, message=f"{channel} 接口错误 {info.ErrorID}: {redact(info.ErrorMsg, self.config)}{detail}")
             return True
         return False
 
@@ -538,10 +541,11 @@ def worker_main(config, incoming, outgoing, flow_path, locale_path):
         from .transport import check_market_transport
         config.validate()
         failure = check_market_transport(config.md_front)
-        if failure:
+        if failure.startswith(("系统拒绝", "行情地址无效")):
             outgoing.put({"kind": "fatal", "message": failure}, timeout=0.2)
             return
-        outgoing.put({"kind": "md_state", "status": "连接中：TCP 可达，等待 CTP 前置连接及登录回调", "epoch": 0}, timeout=0.2)
+        status = f"连接中：TCP 预检未通过：{failure}；仍由 CTP 尝试连接，请等待回调或取消重试" if failure else "连接中：TCP 可达，等待 CTP 前置连接及登录回调"
+        outgoing.put({"kind": "md_state", "status": status, "epoch": 0}, timeout=0.2)
         if sys.platform == "linux" and Path(locale_path).is_dir():
             os.environ.setdefault("LOCPATH", str(Path(locale_path)))
         from openctp_ctp import mdapi

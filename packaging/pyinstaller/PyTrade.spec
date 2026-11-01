@@ -9,6 +9,7 @@ datas = [
     (repo / 'data/Instruments.snapshot.xml', 'data'),
     (repo / 'data/original_dom_spec.json', 'data'),
     (repo / 'assets/sounds', 'assets/sounds'),
+    (repo / 'assets/third_party', 'assets/third_party'),
 ]
 
 hiddenimports = ['openctp_ctp', 'openctp_ctp.mdapi', 'openctp_ctp.traderapi']

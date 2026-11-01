@@ -1,7 +1,8 @@
 import random
 from datetime import datetime
 
-from .domain import CATALOG, Fill, Snapshot, Status
+from .domain import Snapshot, Status
+from .matching import dependency_ready, match_order
 
 
 class Simulator:
@@ -22,11 +23,13 @@ class Simulator:
             self.volumes[key] += self.random.randint(1, 12)
             bids = tuple((last - 1 - i, self.random.randint(1, 80)) for i in range(instrument.depth))
             asks = tuple((last + 1 + i, self.random.randint(1, 80)) for i in range(instrument.depth))
-            self.snapshots[key] = Snapshot(key, last, bids, asks, self.volumes[key], datetime.now().strftime("%H:%M:%S"))
+            self.snapshots[key] = Snapshot(key, last, bids, asks, self.volumes[key], datetime.now().strftime("%H:%M:%S"), pre_settlement=instrument.tick * instrument.initial_ticks, upper_limit=instrument.initial_ticks * 11 // 10, lower_limit=instrument.initial_ticks * 9 // 10)
         self.ledger.marks = dict(self.prices)
         self.ledger.update_risk()
         liquidity = {(key, side, price): quantity for key, snapshot in self.snapshots.items() for side, levels in (("买", snapshot.asks), ("卖", snapshot.bids)) for price, quantity in levels}
         for order in self.ledger.orders.values():
+            if order.status not in {Status.PENDING, Status.WORKING, Status.PARTIAL} or not dependency_ready(self.ledger, order):
+                continue
             if order.status == Status.PENDING:
                 self.ledger.acknowledge(order.id)
                 continue
@@ -34,15 +37,8 @@ class Simulator:
                 continue
             snapshot = self.snapshots[order.key]
             levels = snapshot.asks if order.side == "买" else snapshot.bids
-            for price, available in levels:
-                crosses = order.ticks >= price if order.side == "买" else order.ticks <= price
-                if not crosses:
-                    break
-                level_key = (order.key, order.side, price)
-                quantity = min(order.remaining, liquidity[level_key], 2)
-                if quantity:
-                    event = Fill(f"{self.sequence}:{order.id}:{price}", order.id, order.key, order.side, order.offset, price, quantity)
-                    self.ledger.apply_fill(event)
-                    liquidity[level_key] -= quantity
-                break
+            remaining = {price: liquidity[(order.key, order.side, price)] for price, _ in levels}
+            match_order(self.ledger, order, levels, remaining, str(self.sequence), ordinary_cap=2)
+            for price, quantity in remaining.items():
+                liquidity[(order.key, order.side, price)] = quantity
         return self.snapshots

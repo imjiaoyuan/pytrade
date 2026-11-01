@@ -1,5 +1,5 @@
 {
-  "updated_at_utc": "2026-10-29T14:48:25.858151+00:00",
+  "updated_at_utc": "2026-11-01T08:10:29.083527+00:00",
   "scope": "point-in-time market-only checks; addresses are not independent provider guarantees",
   "services": [
     {
@@ -201,25 +201,35 @@
       "front": "tcp://182.254.243.31:40011",
       "category": "public_simulation",
       "status": "stream_verified",
-      "quote_count": 196,
-      "checked_at_utc": "2026-10-30T19:25:00+00:00",
-      "note": "公共7x24模拟环境；19:25时段空凭据实收GFEX期货与商品期权持续回调，仅一档深度；可用性由服务方控制"
+      "quote_count": 240,
+      "checked_at_utc": "2026-11-01T08:10:29.083527+00:00",
+      "note": "2026-11-01 默认生产API模式40秒空凭据实收ag2612/au2612/rb2701共240次变化行情；公共模拟环境，交易日20261030，一档深度，不等同于真实柜台；当日测评API模式握手4040",
+      "evidence_file": "market_public_production_api_20261101.json",
+      "observed_depth": {
+        "ag2612": 1,
+        "au2612": 1,
+        "rb2701": 1
+      }
     },
     {
       "name": "openctp-7x24",
       "front": "tcp://trading.openctp.cn:30011",
       "category": "public_simulation",
       "status": "repeated_disconnect_4097",
-      "checked_at_utc": "2026-10-30T19:20:00+00:00",
-      "note": "公共模拟环境；当日反复断线未收到行情"
+      "checked_at_utc": "2026-11-01T08:10:29.083527+00:00",
+      "note": "2026-11-01 默认生产及测评API模式均反复4097断线，未收到行情",
+      "evidence_file": "market_public_production_api_20261101.json",
+      "quote_count": 0
     },
     {
       "name": "N视界期货",
       "front": "tcp://210.14.72.12:4602",
       "category": "public_simulation",
-      "status": "tcp_reachable",
-      "checked_at_utc": "2026-10-30T19:16:00+00:00",
-      "note": "公共仿真；TCP可达，登录订阅未测"
+      "status": "snapshot_only",
+      "checked_at_utc": "2026-11-01T08:10:29.083527+00:00",
+      "note": "2026-11-01 默认生产API模式空凭据登录订阅成功，40秒仅三合约各1份快照，没有连续变化证据；测评API模式握手4040",
+      "evidence_file": "market_public_production_api_20261101.json",
+      "quote_count": 3
     }
   ],
   "public_trade_addresses": [

@@ -65,6 +65,9 @@ class Controller(QMainWindow):
         self.group_bar = None
         self.shutting_down = False
         self.paused = False
+        from .local_algos import LocalAlgoEngine
+        self.local_algos = LocalAlgoEngine(self)
+        self.strategies_dialog = None
         self.checked_contracts = set()
         self.details_visible = True
         self.expanded_size = None
@@ -99,6 +102,8 @@ class Controller(QMainWindow):
             item.triggered.connect(action)
             connection_menu.addAction(item)
         settings_menu = self.menuBar().addMenu("配置 / 工具")
+        strategies_action = settings_menu.addAction("本地策略 / 双腿价差")
+        strategies_action.triggered.connect(lambda: self.show_strategies())
         sound_menu = settings_menu.addMenu("交易音效")
         enabled = sound_menu.addAction("启用音效")
         enabled.setCheckable(True)
@@ -498,6 +503,15 @@ class Controller(QMainWindow):
         dialog = AccountManagerDialog(self, self.state_dir)
         dialog.exec()
 
+    def show_strategies(self, key=None):
+        from .strategies_ui import StrategiesDialog
+        if self.strategies_dialog is None:
+            self.strategies_dialog = StrategiesDialog(self)
+        if key:
+            self.strategies_dialog.key.setCurrentIndex(self.strategies_dialog.key.findData(key))
+        self.strategies_dialog.show()
+        self.strategies_dialog.raise_()
+
     def toggle_pause(self):
         if self.paper:
             self.paused = not self.paused
@@ -525,6 +539,8 @@ class Controller(QMainWindow):
             return
         snapshots = self.simulator.advance()
         self.offline_stops.poll()
+        for snapshot in snapshots.values():
+            self.local_algos.update(snapshot)
         for window in self.windows:
             window.refresh(snapshots[window.instrument.key])
         self.refresh_records()
@@ -539,7 +555,7 @@ class Controller(QMainWindow):
         cues = self.sound_tracker.observe(ledger, {key: str(order.status) for key, order in ledger.orders.items()}, {fill.event_id for fill in ledger.fills})
         for cue in dict.fromkeys(cues):
             self.sounds.play(cue)
-        self.populate(self.orders, [(o.id, o.key, o.side, o.offset, ledger.catalog[o.key].price(o.ticks), o.quantity, o.filled, o.status, o.message, o.group) for o in ledger.orders.values()])
+        self.populate(self.orders, [(o.id, o.key, o.side, o.offset, ledger.catalog[o.key].price(o.ticks), o.quantity, o.filled, o.status, f"[{o.order_type}] {o.message}", o.group) for o in ledger.orders.values()])
         rows = []
         for (key, side), position in ledger.positions.items():
             if not position.quantity:
@@ -676,6 +692,7 @@ class Controller(QMainWindow):
             return
         config = replace(session.config, paper_trading=True, environment="simulation")
         config.validate()
+        self.local_algos.suspend("切换模拟会话")
         self.offline_stops.close()
         session.config = config
         self.ledger = Ledger(catalog=dict(self.catalog), limits=self.ledger.limits)
@@ -698,6 +715,7 @@ class Controller(QMainWindow):
         if self.persistence_error:
             self.log(self.persistence_error)
             return
+        self.local_algos.suspend("开始新的接口会话")
         gateway = None
         try:
             config.validate()
@@ -759,6 +777,7 @@ class Controller(QMainWindow):
         if event["kind"] == "sync_done":
             self.filter_contracts()
         if event["kind"] in {"md_state", "fatal"}:
+            self.local_algos.suspend("行情连接改变")
             if self.paper:
                 self.paper.suspend("行情连接改变，本地模拟挂单已撤销")
             for window in self.windows:
@@ -766,6 +785,7 @@ class Controller(QMainWindow):
         if self.paper and event["kind"] == "quote":
             snapshot = self.external.snapshots.get(event.get("key"))
             if snapshot and snapshot.received_monotonic == event.get("received") and self.paper.accept(snapshot, event["epoch"]) and not self.paused:
+                self.local_algos.update(snapshot)
                 prices = [snapshot.last]
                 for name in ("range_low", "range_high"):
                     try:
@@ -775,6 +795,7 @@ class Controller(QMainWindow):
                 self.offline_stops.stops.observe(snapshot.key, min(prices), max(prices))
 
     def disconnect_ctp(self):
+        self.local_algos.suspend("连接正在断开")
         if self.gateway:
             if self.paper:
                 self.paper.suspend("行情已断开，本地模拟挂单已撤销")
@@ -830,6 +851,7 @@ class Controller(QMainWindow):
             self.pending_offline = True
             self.disconnect_ctp()
             return
+        self.local_algos.suspend("切换到离线会话")
         self.offline_mode = True
         self.offline_stops.close()
         self.paper = None
@@ -1021,6 +1043,9 @@ class Controller(QMainWindow):
             self.log(f"布局恢复失败：{error}；请重新排列后保存")
 
     def closeEvent(self, event):
+        self.local_algos.suspend("应用退出")
+        if self.strategies_dialog is not None:
+            self.strategies_dialog.close()
         if self.gateway:
             self.exit_pending = True
             self.disconnect_ctp()

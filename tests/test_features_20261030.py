@@ -39,7 +39,10 @@ class FeatureTests(unittest.TestCase):
         window.refresh(snapshot)
         order = self.controller.ledger.submit(window.instrument.key, "买", "开仓", snapshot.last + 20, 2)
         self.advance_until_filled(order.id)
-        self.assertIn(order.ticks, window.model.filled_by_price)
+        actual_fills = [fill for fill in self.controller.ledger.fills if fill.order_id == order.id]
+        self.assertTrue(actual_fills)
+        for fill in actual_fills:
+            self.assertIn(fill.ticks, window.model.filled_by_price)
         pending = self.controller.ledger.submit(window.instrument.key, "买", "开仓", snapshot.last - 200, 3)
         self.controller.advance()
         self.controller.advance()

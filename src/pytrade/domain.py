@@ -56,6 +56,11 @@ class Snapshot:
     trading_day: str = ""
     action_day: str = ""
     received_monotonic: float = 0.0
+    pre_settlement: Decimal | None = None
+    open_interest: Decimal | None = None
+    pre_open_interest: Decimal | None = None
+    upper_limit: int | None = None
+    lower_limit: int | None = None
 
 
 @dataclass
@@ -99,6 +104,8 @@ class Order:
     message: str = "等待本地模拟器回报"
     group: int = 1
     stop_id: str = ""
+    order_type: str = "GFD"
+    after_order: str = ""
 
     @property
     def remaining(self):
@@ -139,17 +146,25 @@ class Ledger:
     trading_error: str = ""
     risk_day: str = ""
     session_id: str = field(default_factory=lambda: uuid4().hex)
+    cancel_caps: dict[str, int] = field(default_factory=dict)
+    cancel_counts: dict[str, int] = field(default_factory=dict)
 
     def position_side(self, side, offset):
         return side if offset == "开仓" else ("卖" if side == "买" else "买")
 
-    def submit(self, key, side, offset, ticks, quantity, group=1, stop_id=""):
+    def submit(self, key, side, offset, ticks, quantity, group=1, stop_id="", order_type="GFD", after_order=""):
         if self.trading_error:
             raise ValueError(self.trading_error)
         if type(group) is not int or not 1 <= group <= 20:
             raise ValueError("分组须为 1–20")
         if key not in self.catalog or side not in {"买", "卖"} or offset not in {"开仓", "平仓"}:
             raise ValueError("合约、方向或开平无效")
+        if order_type not in {"GFD", "FAK", "FOK"}:
+            raise ValueError("未知委托有效期")
+        if after_order:
+            previous = self.orders.get(after_order)
+            if previous is None or (previous.key, previous.side, previous.group, previous.offset, offset) != (key, side, group, "平仓", "开仓"):
+                raise ValueError("先平后开关联委托无效")
         if type(ticks) is not int or ticks <= 0 or type(quantity) is not int or not 1 <= quantity <= self.max_order:
             raise ValueError(f"单笔数量须为 1–{self.max_order} 手，价格须为正整数 tick")
         position_side = self.position_side(side, offset)
@@ -170,7 +185,9 @@ class Ledger:
             stop_reserved = sum(stop.quantity for stop in self.stop_manager.stops.values() if stop.key == key and stop.group == group and stop.position_side == position_side and stop.state not in {"filled", "canceled"} and stop.id != stop_id) if self.stop_manager else 0
             if quantity + pending + stop_reserved > grouped:
                 raise ValueError("分组可平持仓不足，含未成交委托与止损占用")
-        order = Order(f"SIM{self.session_id}:{len(self.orders) + 1:06}", key, side, offset, ticks, quantity, group=group, stop_id=stop_id)
+        order = Order(f"SIM{self.session_id}:{len(self.orders) + 1:06}", key, side, offset, ticks, quantity, group=group, stop_id=stop_id, order_type=order_type, after_order=after_order)
+        if after_order:
+            order.message = "等待关联平仓单全部成交后再受理开仓"
         self.orders[order.id] = order
         return order
 
@@ -186,11 +203,15 @@ class Ledger:
             order.message = "撤单失败：委托已终结"
             return False
         self.update_risk()
+        cap = self.cancel_caps.get(order.key)
+        if cap is not None and self.cancel_counts.get(order.key, 0) >= cap:
+            raise ValueError("本合约本地模拟撤单限制已达到；可在 DOM 调整限制")
         self.risk.reserve_cancel(self.limits, str(self.risk.cancel_count + 1))
         if not accepted:
             order.message = "模拟撤单失败，委托仍有效"
             return False
         order.status = Status.CANCELED
+        self.cancel_counts[order.key] = self.cancel_counts.get(order.key, 0) + 1
         order.message = "本地模拟器撤单回报"
         return True
 
@@ -244,6 +265,7 @@ class Ledger:
                 self.risk.baseline = str(pnl)
             self.risk.day = day
             self.risk.cancel_count = 0
+            self.cancel_counts.clear()
             self.risk.cancel_tokens = {}
             self.risk.loss_locked = False
         self.risk.pnl = pnl - Decimal(self.risk.baseline or "0")

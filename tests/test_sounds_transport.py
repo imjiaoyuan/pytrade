@@ -65,6 +65,25 @@ class SoundTransportTests(unittest.TestCase):
         self.assertEqual(outgoing.get_nowait(), {'kind': 'fatal', 'message': '系统拒绝行情网络连接'})
         self.assertTrue(outgoing.empty())
 
+    def test_transient_precheck_failure_still_starts_ctp(self):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from pytrade.ctp_worker import worker_main
+        from pytrade.external import ConnectionConfig
+        incoming, outgoing = queue.Queue(), queue.Queue()
+        incoming.put({"command": "stop"})
+        engine = MagicMock()
+        with patch("pytrade.transport.check_market_transport", return_value="行情服务器 TCP 连接超时"), patch.dict(sys.modules, {"openctp_ctp": SimpleNamespace(mdapi=object())}), patch("pytrade.ctp_worker.Engine", return_value=engine):
+            from tempfile import TemporaryDirectory
+            with TemporaryDirectory() as directory:
+                worker_main(ConnectionConfig(md_front="tcp://127.0.0.1:1234"), incoming, outgoing, directory, "/tmp/unused-locale")
+        engine.start.assert_called_once()
+        engine.close.assert_called_once()
+        state = outgoing.get_nowait()
+        self.assertEqual(state["kind"], "md_state")
+        self.assertIn("仍由 CTP 尝试连接", state["status"])
+
 
 if __name__ == '__main__':
     unittest.main()

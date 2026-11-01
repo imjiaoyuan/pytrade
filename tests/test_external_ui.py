@@ -108,6 +108,22 @@ class ExternalUiTests(unittest.TestCase):
         self.assertFalse(self.controller.simulator.snapshots)
         self.assertTrue(all(command["command"] == "subscriptions" for command in self.controller.gateway.commands))
 
+    def test_local_algorithm_uses_real_quote_events_and_never_sends_trader_commands(self):
+        self.start_paper()
+        task = self.controller.local_algos.start("sniper", "SHFE.ag2612", "买", "开仓", 1, 12522, 1)
+        self.paper_quote()
+        self.assertEqual(len(task.orders), 1)
+        self.assertEqual(self.controller.ledger.orders[task.orders[0]].filled, 0)
+        self.paper_quote()
+        self.paper_quote()
+        self.assertEqual(task.status, "已完成")
+        self.assertEqual(self.controller.ledger.orders[task.orders[0]].filled, 1)
+        waiting = self.controller.local_algos.start("best", "SHFE.ag2612", "买", "开仓", 1, 12522, 1)
+        self.controller.gateway.event.emit(dict(kind="md_state", epoch=2, status="断线(4097)，等待重连"))
+        self.assertEqual(waiting.status, "已暂停")
+        self.assertFalse(waiting.orders)
+        self.assertTrue(all(command["command"] == "subscriptions" for command in self.controller.gateway.commands))
+
     def test_market_only_can_switch_to_paper_without_reconnect_or_trader_commands(self):
         self.controller.start_external(ConnectionConfig(md_front="tcp://127.0.0.1:1"))
         gateway = self.controller.gateway
@@ -153,16 +169,19 @@ class ExternalUiTests(unittest.TestCase):
         with patch.object(window, "submit") as submit:
             position = window.table.visualRect(index).center()
             QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
-            submit.assert_called_once_with("买", "开仓")
+            submit.assert_called_once_with("买", "开仓", quantity=1)
             submit.reset_mock()
             window.table.customContextMenuRequested.emit(position)
-            submit.assert_called_once_with("卖", "开仓")
+            submit.assert_not_called()
+            window.right_quantity.setValue(2)
+            window.table.customContextMenuRequested.emit(position)
+            submit.assert_called_once_with("卖", "开仓", quantity=2)
         window.click_mode.setCurrentIndex(window.click_mode.findData("columns_close"))
         with patch.object(window, "submit") as submit:
             window.price_action(index)
             submit.assert_not_called()
             window.price_action(window.model.index(index.row(), 0))
-            submit.assert_called_once_with("买", "平仓")
+            submit.assert_called_once_with("买", "平仓", quantity=1)
         self.controller.start_external(ConnectionConfig(md_front="tcp://127.0.0.1:1"))
         with patch.object(window, "submit") as submit:
             window.price_action(window.model.index(index.row(), 0))

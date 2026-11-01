@@ -129,7 +129,20 @@ def normalize_quote(data, instrument, source, received=None):
         levels.append(tuple(rows))
     if levels[0] and levels[1] and levels[0][0][0] > levels[1][0][0]:
         raise ValueError("盘口买卖价格交叉")
-    return Snapshot(instrument.key, last, levels[0], levels[1], int(data.get("Volume", 0)), str(data.get("UpdateTime", "")), source, str(data.get("TradingDay", "")), str(data.get("ActionDay", "")), received if received is not None else time.monotonic())
+    def optional_number(name, positive=False):
+        try:
+            value = finite_decimal(data.get(name))
+            return value if (value > 0 if positive else value >= 0) else None
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+
+    def optional_ticks(name):
+        try:
+            return quote_ticks(data.get(name), instrument.tick)
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+
+    return Snapshot(instrument.key, last, levels[0], levels[1], int(data.get("Volume", 0)), str(data.get("UpdateTime", "")), source, str(data.get("TradingDay", "")), str(data.get("ActionDay", "")), received if received is not None else time.monotonic(), optional_number("PreSettlementPrice", True), optional_number("OpenInterest"), optional_number("PreOpenInterest"), optional_ticks("UpperLimitPrice"), optional_ticks("LowerLimitPrice"))
 
 
 def load_instruments(path):

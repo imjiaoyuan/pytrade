@@ -26,6 +26,8 @@ class Event(TypedDict, total=False):
     rows: list[dict]
     received: float
     message: str
+    channel: str
+    error_id: int
 
 
 def validate_version(message):

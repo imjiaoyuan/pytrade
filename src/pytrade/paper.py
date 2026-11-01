@@ -2,8 +2,9 @@ import time
 from datetime import datetime
 from decimal import Decimal
 
-from .domain import ACTIVE, Fill, Status
+from .domain import ACTIVE, Status
 from .external import finite_decimal
+from .matching import dependency_ready, match_order
 
 
 class PaperSimulator:
@@ -44,7 +45,7 @@ class PaperSimulator:
             raise ValueError("合约参数已改变，请新建模拟会话后再交易")
         return snapshot
 
-    def submit(self, key, side, offset, ticks, quantity, group=1, stop_id=""):
+    def submit(self, key, side, offset, ticks, quantity, group=1, stop_id="", order_type="GFD", after_order=""):
         self.check_ready(key)
         instrument = self.session.catalog[key]
         raw = self.session.raw_quotes[key]["row"]
@@ -55,8 +56,8 @@ class PaperSimulator:
         if type(ticks) is not int or not 0 < lower <= instrument.tick * ticks <= upper:
             raise ValueError("模拟委托价格超出有效涨跌停范围")
         self.ledger.catalog.setdefault(key, instrument)
-        order = self.ledger.submit(key, side, offset, ticks, quantity, group, stop_id)
-        order.message = "在线模拟本地委托，等待下一次真实报价受理；不发送外部委托"
+        order = self.ledger.submit(key, side, offset, ticks, quantity, group, stop_id, order_type, after_order)
+        order.message = "等待关联平仓单全部成交后再受理本地开仓" if after_order else "在线模拟本地委托，等待下一次真实报价受理；不发送外部委托"
         self.sync_references()
         return order
 
@@ -93,23 +94,18 @@ class PaperSimulator:
         for order in list(self.ledger.orders.values()):
             if order.key != key:
                 continue
+            if order.status not in ACTIVE or not dependency_ready(self.ledger, order):
+                continue
             if order.status == Status.PENDING:
                 self.ledger.acknowledge(order.id, message="在线模拟本地受理，等待后续真实报价撮合")
                 continue
             if order.status not in {Status.WORKING, Status.PARTIAL}:
                 continue
             levels = snapshot.asks if order.side == "买" else snapshot.bids
-            for price, _ in levels:
-                if not (order.ticks >= price if order.side == "买" else order.ticks <= price):
-                    break
-                level = book[(order.side, price)]
-                quantity = min(order.remaining, level[1])
-                if quantity:
-                    self.ledger.apply_fill(Fill(f"PAPER:{epoch}:{self.sequence}:{order.id}:{price}", order.id, key, order.side, order.offset, price, quantity))
-                    order.message = "在线模拟本地成交，不是交易所成交；不含手续费和保证金"
-                    level[1] -= quantity
-                if not order.remaining:
-                    break
+            remaining = {price: book[(order.side, price)][1] for price, _ in levels}
+            match_order(self.ledger, order, levels, remaining, f"PAPER:{epoch}:{self.sequence}")
+            for price, quantity in remaining.items():
+                book[(order.side, price)][1] = quantity
         self.ledger.update_risk()
         self.sync_references()
         return True

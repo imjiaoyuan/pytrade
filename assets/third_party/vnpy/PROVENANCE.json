@@ -1,0 +1,66 @@
+{
+  "adapted_modules": {
+    "src/pytrade/order_conversion.py": [
+      "vnpy/vnpy/trader/converter.py"
+    ],
+    "src/pytrade/local_algos.py": [
+      "vnpy_algotrading/vnpy_algotrading/algos/best_limit_algo.py",
+      "vnpy_algotrading/vnpy_algotrading/algos/sniper_algo.py",
+      "vnpy_algotrading/vnpy_algotrading/algos/stop_algo.py",
+      "vnpy_spreadtrading/vnpy_spreadtrading/base.py",
+      "vnpy_spreadtrading/vnpy_spreadtrading/algo.py"
+    ],
+    "src/pytrade/matching.py": [
+      "CTP FAK/FOK order-type behavior as mapped in vnpy_ctp/vnpy_ctp/gateway/ctp_gateway.py"
+    ],
+    "src/pytrade/connection_presets.py": [
+      "vnpy/docs/community/info/veighna_trader.md",
+      "SimNow public reference endpoint pairs; market-only live verification on 2026-11-01"
+    ],
+    "src/pytrade/dom_algo_binding.py": [
+      "vnpy_algotrading/vnpy_algotrading/algos/best_limit_algo.py",
+      "vnpy_algotrading/vnpy_algotrading/algos/sniper_algo.py",
+      "vnpy_algotrading/vnpy_algotrading/algos/stop_algo.py",
+      "vnpy_spreadtrading/vnpy_spreadtrading/base.py",
+      "vnpy_spreadtrading/vnpy_spreadtrading/algo.py"
+    ]
+  },
+  "sources": {
+    "vnpy": {
+      "url": "https://github.com/vnpy/vnpy",
+      "commit": "c6e231caf32b7fc97e6459817fff66458cf7e7c4"
+    },
+    "vnpy_ctp": {
+      "url": "https://github.com/vnpy/vnpy_ctp",
+      "commit": "1be9bfb5292208e5c258cc769c90be4abe83f9a9"
+    },
+    "vnpy_spreadtrading": {
+      "url": "https://github.com/vnpy/vnpy_spreadtrading",
+      "commit": "51c9fdfb506179927c0f0a9bd62fff5663dc0633"
+    },
+    "vnpy_algotrading": {
+      "url": "https://github.com/vnpy/vnpy_algotrading",
+      "commit": "bee959dc464749f7cce66e766249ccdbb2d4869a"
+    },
+    "vnpy_riskmanager": {
+      "url": "https://github.com/vnpy/vnpy_riskmanager",
+      "commit": "6af7bd98019bdb5c34506af1042db4e142f9599a"
+    }
+  },
+  "adaptations": [
+    "Integer tick and Decimal prices",
+    "Existing pytrade local simulator and risk/group ownership",
+    "Two-leg fixed A-factor*B formula instead of arbitrary expressions",
+    "Explicit local-simulation-only strategies; no external order routing",
+    "No automatic strategy restoration after disconnect or session/day changes",
+    "User-authorized DOM mappings A=BestLimit, B=Sniper, CntrbySprd=two-leg spread and M-OrderX=Stop, with send-time DOM policy checks and local-only routing; no claim of original EXE equivalence"
+  ],
+  "simnow_sources": {
+    "official_product_url": "https://www.simnow.com.cn/product.action",
+    "official_read_result": "2026-11-01: HTTP 202 browser verification shell, body not retrieved; no claim of latest official page verification",
+    "vnpy_documentation": "https://github.com/vnpy/vnpy/blob/master/docs/community/info/veighna_trader.md",
+    "reference_7x24_pair": "https://www.vnpy.com/forum/topic/34248-qing-wen-4-1-0ban-ben-lian-jie-simnowce-shi-huan-jing-bao-4097cuo-wu-shi-shi-yao-yuan-yin",
+    "market_live_checked": "tcp://182.254.243.31:40011; 2026-11-01 production API anonymous stream received",
+    "trading_account_tested": false
+  }
+}

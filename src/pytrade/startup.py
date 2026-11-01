@@ -1,4 +1,6 @@
 import json
+import queue
+import threading
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +22,7 @@ from .theme import COMBO_POPUP_STYLE
 
 
 class StartupWindow(QMainWindow):
+    probe_result = Signal(int, str, object)
     offline_requested = Signal()
     login_requested = Signal(object)
     cancel_requested = Signal()
@@ -31,6 +34,9 @@ class StartupWindow(QMainWindow):
         self.trial_state = trial_state
         self.settings_config = None
         self.busy = False
+        self.probe_generation = 0
+        self.probes_pending = 0
+        self.probe_result.connect(self.show_probe_result)
         self.setWindowTitle("意意期货交易 · 登录与行情选择")
         self.update_trial_title()
         self.resize(1030, 660)
@@ -47,13 +53,17 @@ class StartupWindow(QMainWindow):
         layout = QVBoxLayout(left)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(3)
-        self.services = self.table(("行情名称", "行情地址", "当前延迟", "历史验证"))
+        self.services = self.table(("行情名称", "行情地址", "当前 TCP 检测", "历史验证"))
         self.services.setColumnWidth(0, 100)
         self.services.setColumnWidth(1, 245)
-        self.services.setColumnWidth(2, 70)
+        self.services.setColumnWidth(2, 115)
         self.services.setColumnWidth(3, 190)
         self.services.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.services, 3)
+        self.probe_button = QPushButton("检测全部行情网络〔只测 TCP〕")
+        self.probe_button.setToolTip("后台检测列表中的端口，不登录、不发送凭据、不自动选择或切换服务；TCP 可达不等于有行情")
+        self.probe_button.clicked.connect(self.probe_services)
+        layout.addWidget(self.probe_button)
         self.services.itemSelectionChanged.connect(self.select_service)
         lower = QSplitter(Qt.Orientation.Horizontal)
         self.accounts = self.table(("交易账户",))
@@ -73,6 +83,13 @@ class StartupWindow(QMainWindow):
         self.trade_fronts.cellDoubleClicked.connect(lambda row, column: self.edit_account())
         address.addWidget(self.account_button)
         address.addWidget(self.manage_button)
+        self.simnow_button = QPushButton("SimNow 快速配置…")
+        self.simnow_button.clicked.connect(lambda: self.edit_account(simnow=True))
+        address.addWidget(self.simnow_button)
+        self.clear_config_button = QPushButton("清除连接配置")
+        self.clear_config_button.setToolTip("清除本次账户凭据及保存的接口参数，保留行情地址；外部交易模式改为在线模拟。不删除账号管理档案或交易记录。")
+        self.clear_config_button.clicked.connect(self.clear_connection_config)
+        address.addWidget(self.clear_config_button)
         self.current = QLabel("当前行情服务：尚未选择")
         self.current.setStyleSheet("color:#008c9e")
         address.addWidget(self.current, 1)
@@ -164,7 +181,7 @@ class StartupWindow(QMainWindow):
             for index, row in enumerate(rows):
                 observed = row.get("status") == "stream_verified" and row.get("quote_count", 0) > 0
                 date = row.get("checked_at_utc", "")[:10] or "日期未知"
-                evidence = f"{date} 空凭据曾实收" if observed else f"{date} 未收到行情"
+                evidence = f"{date} 空凭据曾实收" if observed else f"{date} 仅静态快照" if row.get("status") == "snapshot_only" else f"{date} 未收到行情"
                 name = row["name"] + ("〔公共模拟〕" if row.get("category") == "public_simulation" else "")
                 for column, value in enumerate((name, row["front"], "未测", evidence)):
                     self.services.setItem(index, column, QTableWidgetItem(value))
@@ -188,6 +205,49 @@ class StartupWindow(QMainWindow):
             self.front.setText(address)
             self.current.setText(f"当前行情服务：{name}")
             self.log(f"选择行情服务：{name}  {address}；尚未连接")
+
+    def probe_services(self):
+        if self.probes_pending:
+            return
+        from .transport import probe_market_transport
+        self.probe_generation += 1
+        generation = self.probe_generation
+        work = queue.Queue()
+        for row in range(self.services.rowCount()):
+            work.put(self.services.item(row, 1).text())
+            self.services.item(row, 2).setText("检测中")
+        self.probes_pending = work.qsize()
+        self.probe_button.setEnabled(False)
+        self.log("开始检测行情 TCP 端口；结果只说明本机当前网络可达性，不等于登录成功，不自动切源。")
+        def run():
+            while True:
+                try:
+                    address = work.get_nowait()
+                except queue.Empty:
+                    return
+                result = probe_market_transport(address)
+                try:
+                    self.probe_result.emit(generation, address, result)
+                except RuntimeError:
+                    return
+        for _ in range(min(4, self.probes_pending)):
+            threading.Thread(target=run, daemon=True).start()
+        if not self.probes_pending:
+            self.probe_button.setEnabled(True)
+
+    def show_probe_result(self, generation, address, result):
+        if generation != self.probe_generation:
+            return
+        labels = {"connected": "TCP可达", "permission": "权限拒绝", "timeout": "超时", "dns": "解析失败", "refused": "连接拒绝", "invalid": "地址无效", "error": "网络失败"}
+        text = f"{labels[result['state']]} {result['elapsed_ms']:g}ms"
+        for row in range(self.services.rowCount()):
+            if self.services.item(row, 1).text() == address:
+                self.services.item(row, 2).setText(text)
+                self.services.item(row, 2).setToolTip(result["message"])
+        self.probes_pending = max(0, self.probes_pending - 1)
+        if not self.probes_pending:
+            self.probe_button.setEnabled(True)
+            self.log("TCP 检测结束；请手动选择地址并登录，收到有效订阅回调后才确认行情可用。")
 
     def mode_changed(self, index=None):
         offline = self.mode.currentData() == "offline"
@@ -245,9 +305,9 @@ class StartupWindow(QMainWindow):
         dialog = AccountManagerDialog(self, self.state_dir)
         dialog.exec()
 
-    def edit_account(self):
+    def edit_account(self, simnow=False):
         previous_mode = self.mode.currentData()
-        market_only = previous_mode in {"market", "paper"}
+        market_only = previous_mode in {"market", "paper"} and not simnow
         dialog = ConnectionDialog(self.state_dir, self, market_only=market_only)
         dialog.fields["md_front"].setText(self.front.text())
         if self.settings_config:
@@ -274,11 +334,19 @@ class StartupWindow(QMainWindow):
         if market_only:
             for key in ("td_front", "app_id", "auth_code"):
                 dialog.fields[key].clear()
+        if simnow:
+            dialog.preset.setCurrentIndex(dialog.preset.findData("7x24"))
+            dialog.apply_preset()
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.settings_config = dialog.config
             self.front.setText(dialog.config.md_front)
             self.password.setText(dialog.config.password)
             self.md_anonymous.setChecked(dialog.config.md_anonymous)
+            matched = next((row for row in range(self.services.rowCount()) if self.services.item(row, 1).text() == dialog.config.md_front), None)
+            if matched is not None:
+                self.services.selectRow(matched)
+            else:
+                self.services.setCurrentCell(-1, -1)
             if dialog.config.td_front:
                 self.mode.setCurrentIndex(self.mode.findData(dialog.config.environment))
                 self.accounts.setRowCount(1)
@@ -287,9 +355,11 @@ class StartupWindow(QMainWindow):
                 self.trade_fronts.setItem(0, 0, QTableWidgetItem(dialog.config.td_front))
                 self.trade_fronts.setItem(0, 1, QTableWidgetItem("未连接"))
             else:
-                self.mode.setCurrentIndex(self.mode.findData("paper" if previous_mode == "paper" else "market"))
+                self.mode.setCurrentIndex(self.mode.findData("paper" if previous_mode == "paper" or dialog.config.paper_trading else "market"))
                 self.accounts.setRowCount(0)
                 self.trade_fronts.setRowCount(0)
+            if matched is None:
+                self.current.setText("当前行情服务：自定义 / 预设地址（未连接）")
             self.log("本次账户配置已更新，尚未发起连接；密码与授权码不保存。")
             return True
         return False
@@ -308,6 +378,8 @@ class StartupWindow(QMainWindow):
         try:
             if not self.front.text().strip():
                 raise ValueError("请先点击上方一行行情服务，或填写行情地址；在线模拟不需要交易账号")
+            if not self.md_anonymous.isChecked() and self.settings_config and self.settings_config.md_front != self.front.text().strip():
+                raise ValueError("行情地址已改变，不能沿用上一服务的账户凭据；请在账号 / 接口重新配置本服务，或勾选空凭据登录")
             if mode in {"market", "paper"}:
                 if self.md_anonymous.isChecked():
                     config = ConnectionConfig(md_front=self.front.text().strip())
@@ -332,7 +404,7 @@ class StartupWindow(QMainWindow):
 
     def set_busy(self, busy):
         self.busy = busy
-        for widget in (self.services, self.front, self.mode, self.account_button, self.manage_button, self.login_button, self.md_anonymous):
+        for widget in (self.services, self.front, self.mode, self.account_button, self.manage_button, self.simnow_button, self.clear_config_button, self.login_button, self.md_anonymous):
             widget.setEnabled(not busy)
         self.market_login_changed()
         self.cancel_button.setVisible(busy)
@@ -344,6 +416,21 @@ class StartupWindow(QMainWindow):
         self.settings_config = None
         self.accounts.setRowCount(0)
         self.trade_fronts.setRowCount(0)
+
+    def clear_connection_config(self):
+        if self.busy:
+            return
+        try:
+            (self.state_dir / "connection.json").unlink(missing_ok=True)
+        except OSError as error:
+            QMessageBox.warning(self, "清除连接配置失败", str(error))
+            return
+        self.clear_credentials()
+        self.md_anonymous.setChecked(True)
+        if self.mode.currentData() in {"simulation", "readonly"}:
+            self.mode.setCurrentIndex(self.mode.findData("paper"))
+        self.market_login_changed()
+        self.log("已清除本次账户和保存的接口配置；保留所选行情地址。未删除账号管理档案、风险设置或交易记录。需要交易时请重新配置。")
 
     def update_trade_status(self, status):
         if self.trade_fronts.rowCount():
