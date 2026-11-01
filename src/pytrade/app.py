@@ -19,7 +19,7 @@ from .domain import ACTIVE, CATALOG, INSTRUMENTS, Ledger
 from .simulation import Simulator
 from .sounds import SoundTracker, TradeSounds
 from .connection_ui import ConnectionDialog
-from .external import ExternalSession, OFFSET_NAMES, ORDER_STATES, load_instruments, quote_ticks
+from .external import ExternalSession, OFFSET_NAMES, ORDER_STATES, TERMINAL, load_instruments, quote_ticks
 from .paper import PaperSimulator
 from .gateway import CtpGateway
 from .resources import application_root, reference_path
@@ -59,6 +59,9 @@ class Controller(QMainWindow):
         self.persistence_error = ""
         self.exit_pending = False
         self.windows = []
+        self.dom_size = None
+        self.dom_zoom = 100
+        self.syncing_dom_size = False
         self.contract_selector = None
         self.position_window = None
         self.close_record_window = None
@@ -186,11 +189,15 @@ class Controller(QMainWindow):
         self.logs.document().setMaximumBlockCount(500)
         self.tabs.addTab(self.logs, "运行记录")
         self.group_shortcuts = []
-        for group in range(1, 11):
-            shortcut = QShortcut(QKeySequence(f"F{group}"), self)
+        for group in range(1, 21):
+            sequence = f"F{group}" if group <= 10 else f"Shift+F{group - 10}"
+            shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
             shortcut.activated.connect(lambda target=group: self.activate_group(target))
             self.group_shortcuts.append(shortcut)
+        self.cancel_all_shortcut = QShortcut(QKeySequence("Space"), self)
+        self.cancel_all_shortcut.setAutoRepeat(False)
+        self.cancel_all_shortcut.activated.connect(self.cancel_all_orders)
         self.selection_hint = QLabel("勾选合约后点击“打开所选”，或双击合约直接打开")
         root.addWidget(self.selection_hint)
         self.statusBar().showMessage("所有报价、成交与盈亏均为本地模拟；原版未确认选项已禁用")
@@ -409,10 +416,32 @@ class Controller(QMainWindow):
         elif key in self.simulator.snapshots:
             window.refresh(self.simulator.snapshots[key])
         self.apply_dom_config(window)
+        if geometry is None:
+            window.set_zoom(self.dom_zoom, resize=False)
+            if self.dom_size is not None:
+                window.resize(self.dom_size)
         window.show()
+        window.size_sync_ready = True
         self.update_contract_window_state(key)
         self.refresh_records()
         return window
+
+    def sync_dom_size(self, source):
+        if self.syncing_dom_size or source.closing or source.isMinimized():
+            return
+        self.syncing_dom_size = True
+        try:
+            self.dom_size = source.size()
+            self.dom_zoom = source.zoom_percent
+            for window in self.windows:
+                if window is source or window.closing:
+                    continue
+                if window.zoom_percent != self.dom_zoom:
+                    window.set_zoom(self.dom_zoom, resize=False)
+                if window.size() != self.dom_size:
+                    window.resize(self.dom_size)
+        finally:
+            self.syncing_dom_size = False
 
     def align_windows(self):
         screen = self.screen().availableGeometry()
@@ -621,6 +650,38 @@ class Controller(QMainWindow):
         for order in self.ledger.orders.values():
             if order.key == key and order.status in ACTIVE and (group is None or order.group == group):
                 self.cancel_one(order.id)
+
+    def cancel_all_orders(self):
+        if self.external and not self.paper:
+            try:
+                self.external.check_trading(require_reconciled=False)
+            except ValueError as error:
+                self.log(f"全部合约撤单未提交：{error}")
+                return
+            targets = [key for key, row in self.external.orders.items() if row.get("OrderStatus") not in TERMINAL | {"pending", "a"} and key not in self.external.canceling]
+            submitted = 0
+            for key in targets:
+                try:
+                    self.external.cancel(key)
+                    submitted += 1
+                except (ValueError, KeyError) as error:
+                    self.log(f"{key} 撤单未提交：{error}")
+            self.log(f"全部合约撤单：已提交 {submitted} 笔，失败 {len(targets) - submitted} 笔；结果等待接口回报")
+            return
+        if not self.offline_mode and not self.paper:
+            self.log("连接已断开，请重连后查询外部委托")
+            return
+        targets = [order.id for order in self.ledger.orders.values() if order.status in ACTIVE]
+        canceled = 0
+        for order_id in targets:
+            try:
+                canceled += bool(self.ledger.cancel_report(order_id))
+            except ValueError as error:
+                self.log(f"{order_id} 撤单失败：{error}")
+        if self.paper:
+            self.paper.sync_references()
+        self.refresh_records()
+        self.log(f"全部合约、全部分组本地撤单：成功 {canceled} 笔，失败 {len(targets) - canceled} 笔")
 
     def check_trial_period(self):
         state = current_trial_state(self.state_dir)

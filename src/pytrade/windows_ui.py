@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
@@ -196,6 +197,9 @@ class GroupControlBar(QWidget):
         super().__init__()
         self.controller = controller
         self.setWindowTitle("分组控制")
+        self.cancel_shortcut = QShortcut(QKeySequence("Space"), self)
+        self.cancel_shortcut.setAutoRepeat(False)
+        self.cancel_shortcut.activated.connect(controller.cancel_all_orders)
         self.setFixedHeight(96)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, False)
@@ -211,7 +215,8 @@ class GroupControlBar(QWidget):
             button = QPushButton(str(group))
             button.setCheckable(True)
             button.setFixedSize(30, 24)
-            button.setToolTip(f"显示第 {group} 组窗口（同 F{group if group <= 10 else group - 10}）")
+            shortcut = f"F{group}" if group <= 10 else f"Shift+F{group - 10}"
+            button.setToolTip(f"显示第 {group} 组窗口（{shortcut}）")
             button.clicked.connect(lambda checked=False, target=group: controller.activate_group(target))
             rows[0 if group <= 10 else 1].addWidget(button)
             self.buttons.append(button)

@@ -198,17 +198,23 @@ class ExternalUiTests(unittest.TestCase):
         window.price_action(window.model.index(window.model.rows // 2, 1))
         self.assertFalse(self.controller.ledger.orders)
 
-    def test_space_cancels_only_current_contract_and_group_in_paper_mode(self):
+    def test_space_cancels_all_contracts_and_groups_in_paper_mode(self):
         from pytrade.domain import Status
         self.start_paper()
         window = self.controller.windows[0]
         first = self.controller.paper.submit(window.instrument.key, "买", "开仓", 12500, 1, 1)
         other = self.controller.paper.submit(window.instrument.key, "买", "开仓", 12500, 1, 2)
+        unopened = self.controller.paper.submit("SHFE.ag2612", "买", "开仓", 12500, 1, 20)
+        for dom in list(self.controller.windows):
+            if dom.instrument.key == "SHFE.ag2612":
+                dom.close()
+        window = self.controller.windows[0]
         window.activateWindow()
         self.app.processEvents()
         QTest.keyClick(window, Qt.Key.Key_Space)
         self.assertEqual(first.status, Status.CANCELED)
-        self.assertEqual(other.status, Status.PENDING)
+        self.assertEqual(other.status, Status.CANCELED)
+        self.assertEqual(unopened.status, Status.CANCELED)
         self.assertTrue(all(command["command"] == "subscriptions" for command in self.controller.gateway.commands))
 
     def test_function_keys_switch_visible_groups_without_reassigning_windows(self):
@@ -231,6 +237,73 @@ class ExternalUiTests(unittest.TestCase):
         for group in range(1, 11):
             QTest.keyClick(self.controller, Qt.Key(int(Qt.Key.Key_F1) + group - 1))
             self.assertEqual(self.controller.group.value(), group)
+        for group in range(11, 21):
+            QTest.keyClick(self.controller, Qt.Key(int(Qt.Key.Key_F1) + group - 11), Qt.KeyboardModifier.ShiftModifier)
+            self.assertEqual(self.controller.group.value(), group)
+
+    def test_window_size_and_zoom_follow_across_hidden_groups_and_new_windows(self):
+        first, second = self.controller.windows
+        second.group.setValue(20)
+        self.controller.activate_group(1)
+        first.resize(610, 720)
+        self.app.processEvents()
+        self.assertEqual(second.size(), first.size())
+        first.set_zoom(150)
+        self.app.processEvents()
+        self.assertEqual(second.zoom_percent, 150)
+        self.assertEqual(second.size(), first.size())
+        third = self.controller.open_dom("DCE.i2701", group=20)
+        self.app.processEvents()
+        self.assertEqual(third.zoom_percent, 150)
+        self.assertEqual(third.size(), first.size())
+
+    def test_escape_and_default_right_click_recenter_without_submitting(self):
+        window = self.controller.windows[0]
+        window.activateWindow()
+        self.app.processEvents()
+        window.follow.setChecked(False)
+        window.model.center += 50
+        QTest.keyClick(window, Qt.Key.Key_Escape)
+        self.assertEqual(window.model.center, window.model.snapshot.last)
+        window.follow.setChecked(False)
+        window.model.center += 50
+        with patch.object(window, "submit") as submit:
+            window.table.customContextMenuRequested.emit(QPoint(10, 10))
+            submit.assert_not_called()
+        self.assertEqual(window.model.center, window.model.snapshot.last)
+
+    def test_global_cancel_continues_after_rejection(self):
+        from pytrade.domain import Status
+        first = self.controller.ledger.submit("SHFE.ag2612", "买", "开仓", 15000, 1, 20)
+        second = self.controller.ledger.submit("SHFE.au2612", "买", "开仓", 45000, 1, 1)
+        self.controller.ledger.cancel_caps[first.key] = 0
+        self.controller.cancel_all_orders()
+        self.assertEqual(first.status, Status.PENDING)
+        self.assertEqual(second.status, Status.CANCELED)
+
+    def test_global_cancel_readonly_external_session_sends_no_requests(self):
+        self.controller.start_external(ConnectionConfig(md_front="tcp://127.0.0.1:1"))
+        self.controller.external.orders["active"] = {"OrderStatus": "3"}
+        with patch.object(self.controller.external, "cancel") as cancel:
+            self.controller.cancel_all_orders()
+            cancel.assert_not_called()
+
+    def test_external_global_cancel_targets_active_orders_and_waits_for_reports(self):
+        self.controller.start_external(ConnectionConfig(md_front="tcp://127.0.0.1:1"))
+        session = self.controller.external
+        session.orders = {
+            "first": {"OrderStatus": "3", "InstrumentID": "ag2612", "Group": 1},
+            "second": {"OrderStatus": "1", "InstrumentID": "au2612", "Group": 20},
+            "filled": {"OrderStatus": "0"},
+            "canceled": {"OrderStatus": "5"},
+            "pending": {"OrderStatus": "pending"},
+            "canceling": {"OrderStatus": "3"},
+        }
+        session.canceling.add("canceling")
+        with patch.object(session, "check_trading"), patch.object(session, "cancel", side_effect=[ValueError("拒绝"), None]) as cancel:
+            self.controller.cancel_all_orders()
+            self.assertEqual([call.args[0] for call in cancel.call_args_list], ["first", "second"])
+        self.assertEqual(session.orders["second"]["OrderStatus"], "1")
 
     def test_paper_disconnect_keeps_local_positions_and_never_replays_pending_orders(self):
         from pytrade.domain import Status

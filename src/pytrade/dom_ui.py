@@ -215,6 +215,8 @@ class DomWindow(QWidget):
         self.controls = DomControls()
         self.zoom_percent = 100
         self.closing = False
+        self.size_sync_ready = False
+        self.adjusting_zoom = False
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, True)
@@ -272,8 +274,11 @@ class DomWindow(QWidget):
         side.addWidget(self.maximize_button)
         self.close_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
         self.close_shortcut.activated.connect(self.close)
+        self.center_shortcut = QShortcut(QKeySequence("Esc"), self)
+        self.center_shortcut.activated.connect(self.recenter)
         self.cancel_shortcut = QShortcut(QKeySequence("Space"), self)
-        self.cancel_shortcut.activated.connect(lambda: controller.cancel_orders(key, group=self.group.value(), shortcut=True))
+        self.cancel_shortcut.setAutoRepeat(False)
+        self.cancel_shortcut.activated.connect(controller.cancel_all_orders)
         self.summary = QLabel("等待行情")
         self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.summary.setFixedHeight(27)
@@ -540,6 +545,11 @@ class DomWindow(QWidget):
     def toggle_maximized(self):
         self.showNormal() if self.isMaximized() else self.showMaximized()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.size_sync_ready and self.isVisible() and not self.adjusting_zoom:
+            self.controller.sync_dom_size(self)
+
     def scaled(self, value):
         return round(value * self.zoom_percent / 100)
 
@@ -670,6 +680,7 @@ class DomWindow(QWidget):
             raise ValueError("显示比例须为整数")
         percent = min(200, max(75, percent))
         previous = self.zoom_percent
+        self.adjusting_zoom = True
         self.zoom_percent = percent
         for widget, style in self.style_baselines:
             widget.setStyleSheet(re.sub(r"(\d+(?:\.\d+)?)px", lambda match: f"{float(match[1]) * percent / 100:g}px", style))
@@ -699,6 +710,9 @@ class DomWindow(QWidget):
         self.model.rows = max(15, self.table.viewport().height() // height)
         self.model.endResetModel()
         self.maximize_button.setToolTip(f"当前显示比例 {percent}%；可拖动窗口边缘改变尺寸")
+        self.adjusting_zoom = False
+        if resize and self.size_sync_ready:
+            self.controller.sync_dom_size(self)
 
     def refresh_disconnected(self):
         self.refresh_controls(False)
@@ -730,6 +744,9 @@ class DomWindow(QWidget):
         self.price.setValue(float(self.instrument.tick * ticks))
 
     def price_action(self, index, right=False):
+        if right and (self.click_mode.currentData() == "select" or self.right_quantity.value() == 0):
+            self.recenter()
+            return
         if not index.isValid():
             return
         self.select_price(index)
@@ -912,14 +929,14 @@ class DomWindow(QWidget):
                 button.setEnabled(ready and not self.controller.ledger.trading_error)
                 button.setToolTip(reason)
             self.cancel_button.setEnabled(True)
-            self.cancel_button.setToolTip("撤销本合约的本地模拟挂单；空格仅撤当前组")
+            self.cancel_button.setToolTip("按钮撤销本合约本地挂单；空格撤销全部合约、全部分组挂单")
             positions = self.controller.ledger.positions
             long = positions.get((instrument.key, "买"))
             short = positions.get((instrument.key, "卖"))
             self.long_position.setText(f"多 {long.quantity if long else 0}")
             self.short_position.setText(f"空 {short.quantity if short else 0}")
             self.position.setText(f"{long.quantity if long else 0}\n模拟持仓\n{short.quantity if short else 0}")
-            self.notice.setText("真实行情 · 本地成交\n不含手续费/保证金\n空格撤本窗当前组\nF1–F10切组")
+            self.notice.setText("真实行情 · 本地成交\n不含手续费/保证金\n空格撤全部合约/组\nF1–F10 / Shift切组")
             self.footer.setText("在线模拟" if ready else f"在线模拟\n{reason}")
             return
         connected = bool(session.config.td_front)
