@@ -16,3 +16,7 @@ diagnostics.json
 bundle-diagnostics.json
 shots/
 AGENTS.md
+
+# trial unlock key (developer only, never commit)
+pytrade.key
+.cache.bin

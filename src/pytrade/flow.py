@@ -1,18 +1,21 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
+from pathlib import Path
+
 from .startup import StartupWindow
+from .trial import current_trial_state
 
 
 class ApplicationFlow:
-    def __init__(self, state_dir):
-        self.state_dir = state_dir
+    def __init__(self, state_dir, trial_state=None):
+        self.state_dir = Path(state_dir)
         self.controller = None
         self.connecting = False
         self.md_logged_in = False
         self.trade_queried = False
         self.quitting = False
-        self.startup = StartupWindow(state_dir)
+        self.startup = StartupWindow(state_dir, trial_state or current_trial_state(Path(state_dir)))
         self.startup.offline_requested.connect(self.enter_offline)
         self.startup.login_requested.connect(self.login)
         self.startup.cancel_requested.connect(self.cancel_login)
@@ -20,6 +23,20 @@ class ApplicationFlow:
 
     def show(self):
         self.startup.show()
+        self.trial_timer = QTimer(self.startup)
+        self.trial_timer.timeout.connect(self.refresh_trial)
+        self.trial_timer.start(30000)
+
+    def refresh_trial(self):
+        state = current_trial_state(self.state_dir)
+        if state and state.expired_reason:
+            self.quit()
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(None, "试用期已结束", f"{state.label()}\n\n如需继续使用，请联系开发者获取正式版本。")
+            return
+        self.startup.update_trial_title(state)
+        if self.controller is not None and self.controller.trial_state is not None:
+            self.controller.check_trial_period()
 
     def workspace(self):
         if self.controller is None:

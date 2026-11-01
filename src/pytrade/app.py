@@ -6,7 +6,7 @@ import sys
 import time
 from itertools import islice
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,9 +22,10 @@ from .connection_ui import ConnectionDialog
 from .external import ExternalSession, OFFSET_NAMES, ORDER_STATES, load_instruments, quote_ticks
 from .paper import PaperSimulator
 from .gateway import CtpGateway
-from .resources import reference_path
+from .resources import application_root, reference_path
 from .version import VERSION
 from .configuration import ConfigStore
+from .trial import TrialState, current_trial_state, enforce_trial_at_startup
 from .offline_stops import OfflineStops
 from .records import configure_logging, transaction_paths
 from .tools_ui import RiskDialog, StopsDialog, display_settings, export_acceptance, export_records, import_configuration, show_availability, show_original_spec
@@ -191,6 +192,8 @@ class Controller(QMainWindow):
         if restore_windows:
             self.restore_layout()
         self.timer = QTimer(self)
+        self.trial_state = current_trial_state(self.state_dir)
+        self.update_trial_title()
         self.timer.timeout.connect(self.advance)
         self.timer.start(500)
         self.advance()
@@ -509,6 +512,7 @@ class Controller(QMainWindow):
         self.state.setText("离线模拟 · 已暂停行情与撮合" if self.paused else "离线模拟 · 行情、委托和成交均为本地模拟")
 
     def advance(self):
+        self.check_trial_period()
         if self.external:
             self.external.periodic()
             if self.paper:
@@ -599,6 +603,43 @@ class Controller(QMainWindow):
             if order.key == key and order.status in ACTIVE and (group is None or order.group == group):
                 self.cancel_one(order.id)
 
+    def check_trial_period(self):
+        state = current_trial_state(self.state_dir)
+        if state is None:
+            return
+        now = datetime.now()
+        if state.expired_reason or state.remaining(now).total_seconds() <= 0:
+            if not state.expired_reason:
+                state = TrialState(state.first_run, state.last_run, "试用已到期")
+            self.trial_state = state
+            self.on_trial_expired(state)
+            return
+        self.trial_state = state
+        self.update_trial_title()
+
+    def update_trial_title(self, state=None):
+        state = state or self.trial_state
+        if state is None:
+            return
+        title = self.windowTitle()
+        marker = title.find(" · 试用版")
+        if marker >= 0:
+            title = title[:marker]
+        new_title = title + f" · {state.label()}"
+        if new_title != self.windowTitle():
+            self.setWindowTitle(new_title)
+
+    def on_trial_expired(self, state):
+        self.shutting_down = True
+        self.timer.stop()
+        for window in list(self.windows):
+            window.close()
+        for window in (self.position_window, self.close_record_window, self.group_bar):
+            if window is not None:
+                window.close()
+        QMessageBox.warning(self, "试用期已结束", f"{state.label()}\n\n如需继续使用，请联系开发者获取正式版本。")
+        QApplication.instance().quit()
+
     def log(self, text):
         if self.external:
             from .external import redact
@@ -647,6 +688,7 @@ class Controller(QMainWindow):
         for snapshot in session.snapshots.values():
             self.paper.accept(snapshot, session.md_epoch)
         self.setWindowTitle("意意交易 · 在线模拟")
+        self.update_trial_title()
         self.log("已切换在线模拟：复用当前行情，不连接交易账户；收到新鲜真实报价后可本地下单，持仓仅本次会话有效")
         self.advance()
 
@@ -693,6 +735,7 @@ class Controller(QMainWindow):
             window.refresh_external(None)
         self.filter_contracts()
         self.setWindowTitle(f"意意交易 · CTP · {self.mode_name()}")
+        self.update_trial_title()
         self.log(f"行情连接进程已启动 · {self.mode_name()}；正在检查 TCP 网络，随后等待 CTP 登录回调")
 
     def on_external_event(self, event, source=None):
@@ -769,6 +812,7 @@ class Controller(QMainWindow):
                 window.setWindowTitle(f"{window.instrument.key} [在线模拟 / 行情已断开]")
         self.state.setText("行情与交易已断开 · 外部委托可能仍有效 · 重连后先查询对账")
         self.setWindowTitle("意意交易 · 已断开")
+        self.update_trial_title()
         self.funds.setPlainText("CTP 已断开，列表为断开前记录。外部委托可能仍有效，重新连接后先查询对账。")
         if self.paper:
             self.refresh_records()
@@ -810,6 +854,7 @@ class Controller(QMainWindow):
             window.footer.setText("离线模拟")
         self.state.setText("离线模拟 · 行情与成交均为本地生成")
         self.setWindowTitle("意意交易 · 离线模拟")
+        self.update_trial_title()
         self.filter_contracts()
         self.advance()
 
@@ -1026,6 +1071,7 @@ def main():
     state_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(state_dir)
     app.setQuitOnLastWindowClosed(False)
+    trial_state = enforce_trial_at_startup(state_dir, application_root())
     if args.smoke_test:
         controller = Controller(state_dir)
         controller.show()
@@ -1051,7 +1097,7 @@ def main():
         QTimer.singleShot(800, verify)
     else:
         from .flow import ApplicationFlow
-        flow = ApplicationFlow(state_dir)
+        flow = ApplicationFlow(state_dir, trial_state)
         flow.show()
     result = app.exec()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

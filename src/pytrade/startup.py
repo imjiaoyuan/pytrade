@@ -25,12 +25,14 @@ class StartupWindow(QMainWindow):
     cancel_requested = Signal()
     exit_requested = Signal()
 
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, trial_state=None):
         super().__init__()
         self.state_dir = Path(state_dir)
+        self.trial_state = trial_state
         self.settings_config = None
         self.busy = False
         self.setWindowTitle("意意期货交易 · 登录与行情选择")
+        self.update_trial_title()
         self.resize(1030, 660)
         self.setMinimumSize(850, 540)
         central = QWidget()
@@ -133,6 +135,13 @@ class StartupWindow(QMainWindow):
         self.load_services()
         self.mode_changed()
         self.log("离线模拟无需选择服务；使用真实行情或交易，请先切换运行模式。")
+
+    def update_trial_title(self, state=None):
+        state = state or self.trial_state
+        if state is None:
+            return
+        self.trial_state = state
+        self.setWindowTitle(f"意意期货交易 · 登录与行情选择 · {state.label()}")
 
     def table(self, headers):
         table = QTableWidget(0, len(headers))
