@@ -68,11 +68,8 @@ class LadderModel(QAbstractTableModel):
 
     def price_color(self, price):
         snapshot = self.snapshot
-        if snapshot:
-            if snapshot.asks and price >= min(ticks for ticks, quantity in snapshot.asks):
-                return LEGACY_PALETTE["ask_price"]
-            if snapshot.bids and price <= max(ticks for ticks, quantity in snapshot.bids):
-                return LEGACY_PALETTE["bid_price"]
+        if snapshot and price == snapshot.last:
+            return LEGACY_PALETTE["last_price"]
         return LEGACY_PALETTE["price_gap"]
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -433,7 +430,7 @@ class DomWindow(QWidget):
         self.price.setToolTip("委托限价：单击价梯选择")
         side.addWidget(self.price)
         self.click_mode = QComboBox()
-        for label, value in (("价梯：仅选价", "select"), ("原图区域·开〔模拟〕", "regions_open"), ("原图区域·平〔模拟〕", "regions_close"), ("左买右卖·开", "mouse_open"), ("左买右卖·平", "mouse_close"), ("灰格买卖·开", "columns_open"), ("灰格买卖·平", "columns_close")):
+        for label, value in (("价梯：仅选价", "select"), ("盘口区域·开〔模拟〕", "regions_open"), ("盘口区域·平〔模拟〕", "regions_close"), ("左买右卖·开", "mouse_open"), ("左买右卖·平", "mouse_close"), ("灰格买卖·开", "columns_open"), ("灰格买卖·平", "columns_close")):
             self.click_mode.addItem(label, value)
         self.click_mode.setToolTip("仅本地模拟：左买右卖按鼠标左右键；灰格买卖按左侧买、右侧卖。开/平须明确选择；不是已确认的原版规则")
         side.addWidget(self.click_mode)
@@ -676,31 +673,25 @@ class DomWindow(QWidget):
         self.zoom_percent = percent
         for widget, style in self.style_baselines:
             widget.setStyleSheet(re.sub(r"(\d+(?:\.\d+)?)px", lambda match: f"{float(match[1]) * percent / 100:g}px", style))
-        self.sidebar.setFixedWidth(self.scaled(148))
-        self.sidebar_scroll.setFixedWidth(self.scaled(156))
-        self.side_column.setFixedWidth(self.scaled(156))
+        self.sidebar.setFixedWidth(self.scaled(132))
+        self.sidebar_scroll.setFixedWidth(self.scaled(140))
+        self.side_column.setFixedWidth(self.scaled(140))
         self.topbar.setFixedHeight(self.scaled(22))
-        for button in self.reference_title_buttons:
-            button.setFixedWidth(self.scaled(21))
-        self.time_label.setFixedHeight(self.scaled(26))
-        for label in (self.volume_stat, self.interest_stat, self.interest_delta_stat):
-            label.setFixedHeight(self.scaled(24))
-        for field in (self.left_quantity, self.right_quantity):
-            field.setFixedHeight(self.scaled(40))
+        self.contract_tick.setFixedHeight(self.scaled(20))
         self.banner.setFixedHeight(self.scaled(32 if self.model.real_mode else 19))
-        self.summary.setFixedHeight(self.scaled(34))
-        self.long_position.setFixedHeight(self.scaled(37))
-        self.short_position.setFixedHeight(self.scaled(37))
-        self.original_marker.setFixedHeight(self.scaled(72))
+        self.summary.setFixedHeight(self.scaled(27))
+        self.long_position.setFixedHeight(self.scaled(21))
+        self.short_position.setFixedHeight(self.scaled(21))
+        self.original_marker.setFixedHeight(self.scaled(40))
         self.quote.setMinimumHeight(self.scaled(52))
         self.position.setMinimumHeight(self.scaled(46))
-        self.setMinimumWidth(self.scaled(320))
+        self.setMinimumWidth(self.scaled(288))
         height = self.scaled(self.controller.config_store.effective().row_height)
         self.model.font_size = self.scaled(11)
         self.model.row_height = height
         self.table.verticalHeader().setMinimumSectionSize(height)
         self.table.verticalHeader().setDefaultSectionSize(height)
-        self.table.setColumnWidth(1, self.scaled(65))
+        self.table.setColumnWidth(1, self.scaled(58))
         if resize and percent != previous and not self.isMaximized():
             available = self.screen().availableGeometry()
             self.resize(min(round(self.width() * percent / previous), available.width()), min(round(self.height() * percent / previous), max(self.minimumHeight(), available.height() - 80)))
@@ -746,13 +737,14 @@ class DomWindow(QWidget):
         if mode == "select" or not (self.controller.paper or (self.controller.offline_mode and not self.controller.external)):
             return
         if mode.startswith("regions"):
-            color = self.model.price_color(self.model.price_at(index.row()))
-            if color == LEGACY_PALETTE["ask_price"]:
+            snapshot = self.model.snapshot
+            ticks = self.model.price_at(index.row())
+            if snapshot and snapshot.asks and ticks >= min(price for price, quantity in snapshot.asks):
                 side = "卖"
-            elif color == LEGACY_PALETTE["bid_price"]:
+            elif snapshot and snapshot.bids and ticks <= max(price for price, quantity in snapshot.bids):
                 side = "买"
             else:
-                self.controller.log("灰色无人报价区仅选价，不按红蓝区域提交模拟委托")
+                self.controller.log("买卖盘口之间的无人报价区仅选价，不提交区域模拟委托")
                 return
         elif mode.startswith("columns"):
             if right or index.column() == 1:
@@ -906,6 +898,8 @@ class DomWindow(QWidget):
         self.refresh_market_stats(snapshot)
         if snapshot is None:
             self.refresh_marks()
+        from .dom_reference_ui import refresh_contract_footer
+        refresh_contract_footer(self, snapshot)
         self.close_offset.setEnabled(not self.controller.paper)
         if self.controller.paper:
             self.close_offset.setCurrentIndex(0)

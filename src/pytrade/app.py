@@ -548,6 +548,9 @@ class Controller(QMainWindow):
     def refresh_records(self):
         if not self.external and not self.offline_mode and not self.paper:
             return
+        from .dom_reference_ui import refresh_contract_footer
+        for window in self.windows:
+            refresh_contract_footer(window, window.model.snapshot)
         if self.external and not self.paper:
             self.refresh_external_records()
             return

@@ -18,6 +18,24 @@ class TradingTests(unittest.TestCase):
     def fill(self, order, event="fill1", quantity=1, price=45825):
         return Fill(event, order.id, order.key, order.side, order.offset, price, quantity)
 
+    def test_contract_pnl_tracks_partial_closes_duplicates_short_and_flat(self):
+        opened = self.order(quantity=3)
+        self.ledger.apply_fill(self.fill(opened, quantity=3))
+        close = self.order("卖", "平仓", 2, 45830)
+        fill = self.fill(close, "partial-close", 2, 45835)
+        self.ledger.apply_fill(fill)
+        self.assertFalse(self.ledger.apply_fill(fill))
+        self.assertEqual(self.ledger.contract_pnl(self.key, 45820), (Decimal("300"), Decimal("-100")))
+        self.assertEqual(self.ledger.contract_pnl(self.key), (None, None))
+        last_close = self.order("卖", "平仓", 1, 45820)
+        self.ledger.apply_fill(self.fill(last_close, "last-close", 1, 45820))
+        self.assertEqual(self.ledger.contract_pnl(self.key), (Decimal("300"), Decimal("0")))
+        short = self.order("卖", "开仓", 2, 45820)
+        self.ledger.apply_fill(self.fill(short, "short-open", 2, 45820))
+        self.assertEqual(self.ledger.contract_pnl(self.key, 45810), (Decimal("700"), Decimal("400")))
+        self.assertEqual(self.ledger.contract_pnl("SHFE.ag2612", 100), (Decimal("0"), Decimal("0")))
+        self.assertEqual(self.ledger.realized, Decimal("300"))
+
     def test_price_precision(self):
         item = CATALOG[self.key]
         self.assertEqual(item.ticks("916.66"), 45833)

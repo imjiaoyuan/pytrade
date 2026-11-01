@@ -138,6 +138,7 @@ class Ledger:
     fills: list[Fill] = field(default_factory=list)
     seen_events: set[str] = field(default_factory=set)
     realized: Decimal = Decimal("0")
+    realized_by_contract: dict[str, Decimal] = field(default_factory=dict)
     risk: RiskBook = field(default_factory=RiskBook)
     limits: RiskLimits = field(default_factory=lambda: RiskLimits(100, 100, 1000, "100000"))
     marks: dict[str, int] = field(default_factory=dict)
@@ -238,7 +239,9 @@ class Ledger:
             closed_cost = position.cost_ticks if fill.quantity == position.quantity else Decimal(position.cost_ticks) * fill.quantity / position.quantity
             direction = 1 if position_key[1] == "买" else -1
             instrument = self.catalog[order.key]
-            self.realized += (Decimal(fill.ticks) * fill.quantity - closed_cost) * direction * instrument.tick * instrument.multiplier
+            profit = (Decimal(fill.ticks) * fill.quantity - closed_cost) * direction * instrument.tick * instrument.multiplier
+            self.realized += profit
+            self.realized_by_contract[order.key] = self.realized_by_contract.get(order.key, Decimal("0")) + profit
             position.cost_ticks = Decimal(position.cost_ticks) - closed_cost
             position.quantity -= fill.quantity
         self.positions[position_key] = position
@@ -251,6 +254,17 @@ class Ledger:
         self.fills.append(fill)
         self.seen_events.add(fill.event_id)
         return True
+
+    def contract_pnl(self, key, last=None):
+        instrument = self.catalog[key]
+        floating = Decimal("0")
+        for side, direction in (("买", 1), ("卖", -1)):
+            position = self.positions.get((key, side))
+            if position and position.quantity:
+                if last is None:
+                    return None, None
+                floating += (Decimal(last) * position.quantity - position.cost_ticks) * direction * instrument.tick * instrument.multiplier
+        return self.realized_by_contract.get(key, Decimal("0")) + floating, floating
 
 
     def update_risk(self):

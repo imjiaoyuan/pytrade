@@ -8,7 +8,6 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
 from pytrade.app import Controller
@@ -37,13 +36,44 @@ class ReferenceDomTests(unittest.TestCase):
         self.app.processEvents()
         self.directory.cleanup()
 
-    def test_quote_regions_follow_best_prices_and_never_fill_missing_depth(self):
+    def test_footer_updates_pnl_and_counts_all_months_without_failed_cancels(self):
+        ledger = self.controller.ledger
+        key = self.window.instrument.key
+        opened = ledger.submit(key, "买", "开仓", 100, 2)
+        ledger.acknowledge(opened.id)
+        ledger.apply_fill(Fill("footer-open", opened.id, key, "买", "开仓", 100, 2))
+        closed = ledger.submit(key, "卖", "平仓", 102, 1)
+        ledger.acknowledge(closed.id)
+        ledger.apply_fill(Fill("footer-close", closed.id, key, "卖", "平仓", 102, 1))
+        second_key = "SHFE.ag2701"
+        ledger.catalog[second_key] = replace(self.window.instrument, key=second_key)
+        for contract in (key, second_key, "SHFE.au2612"):
+            order = ledger.submit(contract, "买", "开仓", 100, 1, group=2)
+            ledger.acknowledge(order.id)
+            ledger.cancel_report(order.id, True)
+        failed = ledger.submit(key, "买", "开仓", 100, 1)
+        ledger.acknowledge(failed.id)
+        ledger.cancel_report(failed.id, False)
+        self.snapshot = replace(self.snapshot, last=103)
+        self.window.refresh(self.snapshot)
+        self.assertIn("+75.00", self.window.contract_total_pnl.text())
+        self.assertIn("+45.00", self.window.contract_floating_pnl.text())
+        self.assertIn("1 / 2", self.window.contract_cancels.text())
+        last_close = ledger.submit(key, "卖", "平仓", 103, 1)
+        ledger.acknowledge(last_close.id)
+        ledger.apply_fill(Fill("footer-last", last_close.id, key, "卖", "平仓", 103, 1))
+        self.controller.refresh_records()
+        self.assertIn("+75.00", self.window.contract_total_pnl.text())
+        self.assertIn("0.00", self.window.contract_floating_pnl.text())
+        self.controller.offline_mode = False
+        self.window.refresh_disconnected()
+        self.assertIn("—", self.window.contract_total_pnl.text())
+        self.assertIn("— / —", self.window.contract_cancels.text())
+
+    def test_legacy_prices_highlight_last_and_never_fill_missing_depth(self):
         model = self.window.model
-        for price in (102, 103, 110):
-            self.assertEqual(model.price_color(price), LEGACY_PALETTE["ask_price"])
-        for price in (98, 97, 90):
-            self.assertEqual(model.price_color(price), LEGACY_PALETTE["bid_price"])
-        for price in (99, 100, 101):
+        self.assertEqual(model.price_color(100), LEGACY_PALETTE["last_price"])
+        for price in (90, 98, 99, 101, 102, 103, 110):
             self.assertEqual(model.price_color(price), LEGACY_PALETTE["price_gap"])
         row = model.rows // 2 + (model.center - 103)
         self.assertEqual(model.data(model.index(row, 2), Qt.ItemDataRole.DisplayRole), "")
@@ -81,31 +111,18 @@ class ReferenceDomTests(unittest.TestCase):
         self.assertEqual(self.window.model.price_step, 1)
 
     def test_reference_controls_share_cancel_policy_and_unknown_position_stays_unknown(self):
-        radio = self.window.cancel_radios.button(485)
-        radio.click()
+        self.window.cancel_policy.setCurrentIndex(self.window.cancel_policy.findData(485))
         self.assertEqual(self.controller.ledger.cancel_caps[self.window.instrument.key], 485)
         self.window.cancel_policy.setCurrentIndex(self.window.cancel_policy.findData(None))
-        self.assertFalse(any(button.isChecked() for button in self.window.cancel_radios.buttons()))
         self.assertNotIn(self.window.instrument.key, self.controller.ledger.cancel_caps)
         self.window.local_controls["only_open"].setChecked(True)
         self.assertEqual(self.window.original_marker.text(), "O")
         self.window.refresh_disconnected()
-        self.assertEqual(self.window.net_position_display.text(), "—")
-        self.assertEqual(self.window.volume_stat.text(), "—")
-        self.assertFalse(radio.isEnabled())
+        self.assertEqual(self.window.net_position_display.text(), "净持仓 —")
+        self.assertIn("总持仓 —", self.window.market_stats.text())
+        self.assertFalse(self.window.cancel_policy.isEnabled())
         self.assertFalse(self.window.spread_checkbox.isEnabled())
         self.assertTrue(all(not button.isEnabled() for button in self.window.original_modes))
-
-    def test_tools_panel_does_not_resize_dom_and_closes_with_parent(self):
-        initial = self.window.size()
-        self.window.tools_toggle.click()
-        self.app.processEvents()
-        self.assertTrue(self.window.reference_tools.isVisible())
-        self.assertEqual(self.window.size(), initial)
-        destroyed = QSignalSpy(self.window.reference_tools.destroyed)
-        self.window.close()
-        self.app.processEvents()
-        self.assertEqual(destroyed.count(), 1)
 
     def advance_algorithm(self, **values):
         self.snapshot = replace(self.snapshot, **values)

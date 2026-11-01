@@ -1,187 +1,45 @@
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
-
-
-class ReferenceTools(QWidget):
-    def closeEvent(self, event):
-        self.parentWidget().tools_toggle.setChecked(False)
-        event.accept()
+from PySide6.QtWidgets import QGridLayout, QLabel, QRadioButton, QWidget
 
 
 def restore_reference_layout(window):
-    old_sidebar = window.sidebar_scroll.takeWidget()
-    old_sidebar.setParent(window)
-    window.side_column.layout().removeWidget(window.order_panel)
-    window.topbar.layout().removeWidget(window.mode_label)
-    window.topbar.layout().removeWidget(window.time_label)
-    window.mode_label.setParent(old_sidebar)
-    old_sidebar.layout().insertWidget(0, window.mode_label)
-    window.time_label.setParent(window)
-    for button in window.topbar.findChildren(QPushButton):
-        button.hide()
-    window.reference_title_buttons = []
-    for text, tip, action in (
-        ("−", "缩小价梯显示间隔，不改变交易最小价位", lambda: change_step(window, -1)),
-        ("+", "增大价梯显示间隔，不改变交易最小价位", lambda: change_step(window, 1)),
-        ("□", "最大化 / 还原", window.toggle_maximized),
-        ("×", "关闭本合约，不撤销外部委托", window.close),
-    ):
-        button = QPushButton(text)
-        button.setFixedWidth(21)
-        button.setToolTip(tip)
-        button.clicked.connect(action)
-        window.topbar.layout().addWidget(button)
-        window.reference_title_buttons.append(button)
-    sidebar = QWidget()
-    side = QVBoxLayout(sidebar)
-    side.setContentsMargins(2, 1, 2, 1)
-    side.setSpacing(3)
-    window.sidebar = sidebar
-    window.sidebar_scroll.setWidget(sidebar)
-    window.time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    window.time_label.setFixedHeight(26)
-    window.time_label.setStyleSheet("background:#a4a4a4;color:#ff3434;font-size:22px;font-weight:bold")
-    side.addWidget(window.time_label)
-    window.summary.setFixedHeight(34)
-    window.summary.setStyleSheet("background:#ff5156;color:black;font-size:26px;font-weight:bold")
-    side.addWidget(window.summary)
-    window.volume_stat = stat_label(side, "—", "当日总成交量；不补造缺失数据")
-    window.interest_stat = stat_label(side, "—", "当前市场总持仓量 OpenInterest")
-    window.interest_delta_stat = stat_label(side, "—", "当日增减仓：OpenInterest − PreOpenInterest")
-    for label, color in ((window.short_position, "#ff4c50"), (window.long_position, "#4a45ff")):
-        label.setStyleSheet(f"background:{color};color:#000000;font-size:25px;font-weight:bold")
-        label.setFixedHeight(37)
-        side.addWidget(label)
-    for field in (window.left_quantity, window.right_quantity):
-        field.setPrefix("")
-        field.setFixedHeight(40)
-        field.setStyleSheet("background:white;color:black;font-size:25px")
-        side.addWidget(field)
-    window.original_modes = []
-    for radio in old_sidebar.findChildren(QRadioButton):
-        if radio.text() in {"A", "B"}:
-            radio.setText(f"ChgOrder({radio.text()})")
-            window.original_modes.append(radio)
-            side.addWidget(radio)
-    if window.original_modes:
-        window.original_modes[0].setChecked(True)
-    window.local_controls["nearby"].setText("Chg Nearby")
-    side.addWidget(window.local_controls["nearby"])
-    side.addWidget(window.spread_checkbox)
-    parameters = QGridLayout()
-    parameters.setContentsMargins(0, 0, 0, 0)
-    for row, (name, field) in enumerate(zip(("", "Pt", "Fctr"), window.spread_fields)):
-        parameters.addWidget(QLabel(name), row, 0)
-        parameters.addWidget(field, row, 1)
-    side.addLayout(parameters)
-    window.cancel_radios = QButtonGroup(window)
-    for name, cap in (("Cancel 485", 485), ("Cancel 4K", 4000), ("NoCancel", 0)):
-        radio = QRadioButton(name)
-        radio.setStyleSheet("color:#800030")
-        radio.setToolTip(window.cancel_policy.toolTip())
-        window.cancel_radios.addButton(radio, cap)
-        radio.clicked.connect(lambda checked=False, value=cap: window.cancel_policy.setCurrentIndex(window.cancel_policy.findData(value)))
-        side.addWidget(radio)
-    window.cancel_policy.currentIndexChanged.connect(lambda: sync_cancel_radios(window))
-    window.local_controls["only_open"].setText("OnlyOpen")
-    side.addWidget(window.local_controls["only_open"])
-    for box in old_sidebar.findChildren(QCheckBox):
-        if box.text() == "M-OrderX":
-            box.setStyleSheet("color:#d225d2")
-            side.addWidget(box)
-    for name in ("limit_lock", "white_lock"):
-        side.addWidget(window.local_controls[name])
-    side.addWidget(window.fills_toggle)
-    group = QHBoxLayout()
-    label = QLabel("合约分组:")
-    label.setStyleSheet("color:#148f8d;font-size:15px")
-    group.addWidget(label)
-    window.group.setPrefix("")
-    window.group.setStyleSheet("background:#f27aea;font-size:17px;font-weight:bold")
-    group.addWidget(window.group)
-    side.addLayout(group)
-    label = QLabel("价格精度")
-    label.setStyleSheet("color:#943c8d;font-size:15px")
-    side.addWidget(label)
-    precision = QHBoxLayout()
-    window.ladder_step.setPrefix("")
-    window.ladder_step.setMinimumWidth(0)
-    precision.addWidget(window.ladder_step, 1)
-    apply_step = QPushButton("改")
-    apply_step.setFixedWidth(30)
-    apply_step.clicked.connect(window.set_ladder_step)
-    precision.addWidget(apply_step)
-    side.addLayout(precision)
-    side.addSpacing(14)
-    window.cancel_usage = QLabel("—")
-    window.cancel_usage.setStyleSheet("color:#903268;font-size:15px")
-    window.cancel_usage.setToolTip("本合约当日本地手动撤单次数 / 本地上限；沿用总风控时上限显示 —。下方 C 另计本会话已撤委托")
-    side.addWidget(window.cancel_usage)
-    window.counter_display = QLabel("C:0　　 T:0")
-    window.counter_display.setStyleSheet("font-size:14px")
-    window.counter_display.setToolTip(window.counters.toolTip())
-    side.addWidget(window.counter_display)
-    side.addSpacing(22)
-    window.net_position_display = QLabel("0")
+    side = window.sidebar.layout()
+    window.original_modes = [button for button in window.sidebar.findChildren(QRadioButton) if button.text() in {"A", "B"}]
+    window.original_modes[0].setChecked(True)
+    window.contract_tick = QLabel(f"最小变动价格 {window.instrument.tick}")
+    window.contract_tick.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    window.contract_tick.setFixedHeight(20)
+    window.contract_tick.setStyleSheet("font-size:11px;font-weight:bold")
+    window.contract_tick.setToolTip("合约元数据的最小变动价格；与价梯显示步长独立，每手每 tick 金额另乘合约乘数")
+    side.insertWidget(side.indexOf(window.market_stats) + 1, window.contract_tick)
+    window.cancel_usage = QLabel("手动撤单：0 / —")
+    window.cancel_usage.setToolTip("本合约当日本地成功手动撤单次数 / 本地上限；不同于底部含自动撤单的会话统计")
+    side.insertWidget(side.indexOf(window.counters) + 1, window.cancel_usage)
+    window.net_position_display = QLabel("净持仓 0")
     window.net_position_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    window.net_position_display.setStyleSheet("color:#8983bd;font-size:39px")
-    side.addWidget(window.net_position_display)
-    window.original_marker.setFixedHeight(72)
-    window.original_marker.setStyleSheet("color:#800040;font-family:serif;font-size:65px")
-    window.original_marker.setToolTip("开平模式标识：P 表示允许开平，O 表示仅开仓；本地模拟规则，原版切换规则尚未验证")
+    side.insertWidget(side.indexOf(window.position) + 1, window.net_position_display)
+    window.original_marker.setToolTip("P 表示允许开平，O 表示仅开仓；本地模拟规则")
     window.local_controls["only_open"].toggled.connect(lambda checked: window.original_marker.setText("O" if checked else "P"))
-    side.addWidget(window.original_marker)
-    side.addStretch(1)
-    window.reference_tools = ReferenceTools(window, Qt.WindowType.Tool)
-    window.reference_tools.setWindowTitle(f"{window.instrument.key} · 下单与更多工具")
-    window.reference_tools.resize(340, 650)
-    tools_layout = QVBoxLayout(window.reference_tools)
-    tools_layout.setContentsMargins(0, 0, 0, 0)
-    tools_scroll = QScrollArea()
-    tools_scroll.setWidgetResizable(True)
-    content = QWidget()
-    content_layout = QHBoxLayout(content)
-    content_layout.addWidget(old_sidebar)
-    content_layout.addWidget(window.order_panel)
-    tools_scroll.setWidget(content)
-    tools_layout.addWidget(tools_scroll)
-    for widget in (window.position, window.counters, window.market_stats):
-        widget.hide()
-    for label in old_sidebar.findChildren(QLabel):
-        if label.text() in {"Pt", "Fct"}:
-            label.hide()
-    window.tools_toggle = QPushButton("下单 / 更多工具 ▸")
-    window.tools_toggle.setCheckable(True)
-    window.tools_toggle.clicked.connect(lambda checked: toggle_tools(window, checked))
-    window.side_column.layout().addWidget(window.tools_toggle)
-    window.reference_tools.hide()
-    window.sidebar.setFixedWidth(148)
-    window.sidebar_scroll.setFixedWidth(156)
-    window.side_column.setFixedWidth(156)
-    window.topbar.layout().setContentsMargins(2, 0, 2, 0)
-    window.topbar.layout().setSpacing(1)
-    window.table.setColumnWidth(1, 65)
-    window.table.setToolTip("红色：卖一及以上；蓝色：买一及以下；灰色：中间无报价区。黑线标记最新成交价。行情缺失不补档；点击下单须在更多工具中明确选择模式。红蓝区域按用户标注实现，原版黑线定位规则仍待核验。")
-    window.click_mode.setToolTip("原图区域模式仅本地模拟：红区卖、蓝区买、灰区只选价；开/平明确选择。鼠标左/右键分别使用各自数量，右键默认禁用。外部账户不启用鼠标报单。")
-    window.resize(348, window.height())
-    window.setMinimumWidth(320)
-
-
-def toggle_tools(window, checked):
-    window.reference_tools.setVisible(checked)
-    window.tools_toggle.setText("下单 / 更多工具 ▾" if checked else "下单 / 更多工具 ▸")
-
-
-def stat_label(layout, text, tooltip):
-    label = QLabel(text)
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    label.setFixedHeight(24)
-    label.setStyleSheet("background:#a4a4a4;color:black;font-size:21px;font-weight:bold")
-    label.setToolTip(tooltip)
-    layout.addWidget(label)
-    return label
+    window.table.setToolTip("左红买量、右绿卖量、中央价格列，黄色标记最新价。盘口缺失不补造数量。单击选价；鼠标报单须明确选择本地模拟开/平模式。")
+    footer = QWidget()
+    footer.setStyleSheet("background:#e6e9ed;font-size:11px")
+    grid = QGridLayout(footer)
+    grid.setContentsMargins(3, 2, 3, 2)
+    grid.setSpacing(2)
+    window.contract_total_pnl = QLabel("总盈亏：—")
+    window.contract_floating_pnl = QLabel("持仓浮盈亏：—")
+    window.contract_cancels = QLabel("撤单：—")
+    for label, row, column in ((window.contract_total_pnl, 0, 0), (window.contract_floating_pnl, 0, 1)):
+        label.setMinimumWidth(0)
+        label.setWordWrap(True)
+        grid.addWidget(label, row, column)
+    window.contract_total_pnl.setToolTip("本合约所有分组：已实现平仓盈亏 + 当前持仓浮盈亏，单位元；本地模拟仅本次会话，不含手续费。外部账户合约级核算尚未接入，显示 —")
+    window.contract_floating_pnl.setToolTip("本合约所有分组的多空持仓，按最新价相对开仓成本计算，乘合约乘数，单位元；无持仓为 0。行情缺失不估算；外部账户暂显示 —")
+    grid.addWidget(window.contract_cancels, 1, 0, 1, 2)
+    window.contract_cancels.setToolTip("合约 / 品种：已确认撤单的委托笔数，含部分成交后撤余量及自动撤单，不计失败请求；跨所有分组。品种按交易所和代码字母前缀汇总各月份（含同前缀期权）。本地为本次会话，外部为已查询/回报记录，不是全市场撤单数")
+    window.layout().addWidget(footer)
 
 
 def change_step(window, direction):
@@ -190,35 +48,40 @@ def change_step(window, direction):
     window.set_ladder_step()
 
 
-def sync_cancel_radios(window):
-    cap = window.cancel_policy.currentData()
-    window.cancel_radios.setExclusive(False)
-    for button in window.cancel_radios.buttons():
-        button.setEnabled(window.cancel_policy.isEnabled())
-        button.setAutoExclusive(False)
-        button.setChecked(window.cancel_radios.id(button) == cap)
-        button.setAutoExclusive(True)
-    window.cancel_radios.setExclusive(True)
-
-
 def refresh_reference_labels(window, snapshot):
-    if snapshot:
-        window.volume_stat.setText(str(snapshot.volume))
-        interest = snapshot.open_interest
-        delta = interest - snapshot.pre_open_interest if interest is not None and snapshot.pre_open_interest is not None else None
-        window.interest_stat.setText(format(interest, 'f') if interest is not None else "—")
-        window.interest_delta_stat.setText(format(delta, '+f') if delta is not None else "—")
-    else:
-        for label in (window.volume_stat, window.interest_stat, window.interest_delta_stat):
-            label.setText("—")
     text = window.position.text()
     numbers = re.findall(r"\d+", text)
-    window.net_position_display.setText(str(int(numbers[0]) - int(numbers[-1])) if len(numbers) >= 2 and "—" not in text and "待核对" not in text else "—")
-    window.net_position_display.setToolTip(text + "\n显示净持仓，多减空；不表示总持仓为零")
-    counts = re.findall(r"\d+", window.counters.text())
-    window.counter_display.setText(f'<span style="color:#903268">C:{counts[0] if counts else "—"}</span>　 <span style="color:#26934a">T:{counts[1] if len(counts) > 1 else "—"}</span>')
-    cap = window.cancel_policy.currentData()
+    net = str(int(numbers[0]) - int(numbers[-1])) if len(numbers) >= 2 and "—" not in text and "待核对" not in text else "—"
+    window.net_position_display.setText(f"净持仓 {net}")
+    window.net_position_display.setToolTip(text + "\n净持仓为多减空")
     local = window.controller.paper or (not window.controller.external and window.controller.offline_mode)
     used = window.controller.ledger.cancel_counts.get(window.instrument.key, 0) if local else "—"
-    window.cancel_usage.setText(f"{used}/{cap if cap is not None else '—'}")
-    sync_cancel_radios(window)
+    cap = window.cancel_policy.currentData()
+    window.cancel_usage.setText(f"手动撤单：{used} / {cap if cap is not None else '—'}")
+    refresh_contract_footer(window, snapshot)
+
+
+def product_key(key):
+    exchange, symbol = key.split(".", 1)
+    match = re.match(r"[A-Za-z]+", symbol)
+    return exchange, match.group().lower() if match else symbol
+
+
+def refresh_contract_footer(window, snapshot):
+    controller = window.controller
+    key = window.instrument.key
+    local = bool(controller.paper or (not controller.external and controller.offline_mode))
+    total = floating = None
+    canceled = None
+    if local:
+        total, floating = controller.ledger.contract_pnl(key, snapshot.last if snapshot else None)
+        canceled = [order.key for order in controller.ledger.orders.values() if order.status.value == "已撤单"]
+    elif controller.external and controller.external.config.td_front:
+        canceled = [f"{row.get('ExchangeID')}.{row.get('InstrumentID')}" for row in controller.external.orders.values() if row.get("OrderStatus") == "5"]
+    for label, title, value in ((window.contract_total_pnl, "总盈亏", total), (window.contract_floating_pnl, "持仓浮盈亏", floating)):
+        color = "#ba182b" if value is not None and value > 0 else "#174fbb" if value is not None and value < 0 else "#333333"
+        amount = f"{value:+.2f} 元" if value else "0.00 元" if value is not None else "—"
+        label.setText(f'{title}：<span style="color:{color}">{amount}</span>')
+    window.contract_tick.setText(f"最小变动价格 {window.instrument.tick}")
+    counts = f"{canceled.count(key)} / {sum(product_key(item) == product_key(key) for item in canceled)}" if canceled is not None else "— / —"
+    window.contract_cancels.setText(f"撤单 合约/品种：{counts}")

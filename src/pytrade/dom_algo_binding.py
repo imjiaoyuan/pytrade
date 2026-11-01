@@ -23,7 +23,7 @@ class DomAlgoBinding:
         self.stop_button.clicked.connect(self.stop)
         side.insertWidget(row + 1, self.stop_button)
         for button, kind, name in zip(window.original_modes, ("best", "sniper"), ("最优价", "狙击")):
-            button.setText(f"ChgOrder({'A' if kind == 'best' else 'B'}) ·{name}")
+            button.setText("A 最优价" if kind == "best" else "B 狙击")
             button.setToolTip("本地模拟：跟随同侧最优价，变价先撤后挂，受选定限价约束" if kind == "best" else "本地模拟：对手价满足选定限价时按一档可见数量提交，未成挂单在后续报价撤销")
             button.clicked.connect(lambda checked=False, value=kind: self.choose(value))
         window.spread_checkbox.setToolTip("vn.py 双腿价差本地实现：本合约 A − Fctr × 腿 B；Pt 为触发阈值。买价差买A卖B，卖价差相反。先成交A再补B，非原版算法等价声明。")
@@ -38,7 +38,7 @@ class DomAlgoBinding:
         second.setCompleter(completer)
         second.setToolTip("不同于当前合约的腿B，填写完整代码，例如 SHFE.ag2612；请先打开该腿DOM接收行情")
         point.setToolTip("Pt：A − Fctr × B 的触发阈值，可为负数；买价差在卖价≤Pt时触发，卖价差在买价≥Pt时触发")
-        factor.setToolTip("Fctr：腿B价格系数，必须为正数；交易手数比例在更多工具中独立设置")
+        factor.setToolTip("Fctr：腿B价格系数，必须为正数；交易手数比例在下方下单区独立设置")
         self.ratio_a, self.ratio_b = QSpinBox(), QSpinBox()
         ratios = QHBoxLayout()
         for label, widget in (("腿A手数", self.ratio_a), ("腿B手数", self.ratio_b)):
