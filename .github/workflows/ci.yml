@@ -5,6 +5,7 @@ on:
     branches: [main, master]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -94,8 +95,9 @@ jobs:
           path: pytrade-linux-x64.tar.gz
 
   build-windows:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -114,17 +116,33 @@ jobs:
           python -m PyInstaller --noconfirm --distpath build/pyinstaller/dist --workpath build/pyinstaller/work packaging/pyinstaller/PyTrade.spec
       - name: Verify bundle
         run: |
-          build/pyinstaller/dist/PyTrade/PyTrade.exe --diagnostics bundle-diagnostics.json --native-check
-          build/pyinstaller/dist/PyTrade/PyTrade.exe --smoke-test --screenshot shots/
+          $exe = (Resolve-Path build/pyinstaller/dist/PyTrade/PyTrade.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--diagnostics', 'bundle-diagnostics.json', '--native-check' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Native check failed: $($process.ExitCode)" }
+          if (!(Test-Path bundle-diagnostics.json)) { throw 'Native diagnostics missing' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test', '--screenshot', 'shots/' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "GUI smoke failed: $($process.ExitCode)" }
         env:
           QT_QPA_PLATFORM: offscreen
       - name: Package zip
         run: |
           Compress-Archive -Path build/pyinstaller/dist/PyTrade -DestinationPath pytrade-windows-x64.zip
+      - name: Verify extracted zip
+        run: |
+          Expand-Archive -Path pytrade-windows-x64.zip -DestinationPath build/zip-check
+          $exe = (Resolve-Path build/zip-check/PyTrade/PyTrade.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--diagnostics', 'zip-diagnostics.json', '--native-check' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Extracted native check failed: $($process.ExitCode)" }
+          if (!(Test-Path zip-diagnostics.json)) { throw 'Extracted diagnostics missing' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test', '--screenshot', 'zip-shots/' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Extracted GUI smoke failed: $($process.ExitCode)" }
+        env:
+          QT_QPA_PLATFORM: offscreen
       - uses: actions/upload-artifact@v4
         with:
           name: pytrade-windows-x64
           path: pytrade-windows-x64.zip
+          if-no-files-found: error
 
   build-macos:
     if: startsWith(github.ref, 'refs/tags/v')
