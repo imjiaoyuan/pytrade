@@ -435,7 +435,7 @@ class DomWindow(QWidget):
         self.price.setToolTip("委托限价：单击价梯选择")
         side.addWidget(self.price)
         self.click_mode = QComboBox()
-        for label, value in (("价梯：仅选价", "select"), ("盘口区域·开〔模拟〕", "regions_open"), ("盘口区域·平〔模拟〕", "regions_close"), ("左买右卖·开", "mouse_open"), ("左买右卖·平", "mouse_close"), ("灰格买卖·开", "columns_open"), ("灰格买卖·平", "columns_close")):
+        for label, value in (("价梯：选价并居中", "select"), ("盘口区域·开〔模拟〕", "regions_open"), ("盘口区域·平〔模拟〕", "regions_close"), ("左买右卖·开", "mouse_open"), ("左买右卖·平", "mouse_close"), ("灰格买卖·开", "columns_open"), ("灰格买卖·平", "columns_close")):
             self.click_mode.addItem(label, value)
         self.click_mode.setToolTip("仅本地模拟：左买右卖按鼠标左右键；灰格买卖按左侧买、右侧卖。开/平须明确选择；不是已确认的原版规则")
         side.addWidget(self.click_mode)
@@ -751,7 +751,10 @@ class DomWindow(QWidget):
             return
         self.select_price(index)
         mode = self.click_mode.currentData()
-        if mode == "select" or not (self.controller.paper or (self.controller.offline_mode and not self.controller.external)):
+        if mode == "select":
+            self.recenter()
+            return
+        if not (self.controller.paper or (self.controller.offline_mode and not self.controller.external)):
             return
         if mode.startswith("regions"):
             snapshot = self.model.snapshot

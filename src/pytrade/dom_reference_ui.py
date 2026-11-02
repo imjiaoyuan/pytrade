@@ -22,7 +22,7 @@ def restore_reference_layout(window):
     side.insertWidget(side.indexOf(window.position) + 1, window.net_position_display)
     window.original_marker.setToolTip("P 表示允许开平，O 表示仅开仓；本地模拟规则")
     window.local_controls["only_open"].toggled.connect(lambda checked: window.original_marker.setText("O" if checked else "P"))
-    window.table.setToolTip("左红买量、右绿卖量、中央价格列，黄色标记最新价。盘口缺失不补造数量。单击选价；鼠标报单须明确选择本地模拟开/平模式。")
+    window.table.setToolTip("左红买量、右绿卖量、中央价格列，黄色标记最新价。盘口缺失不补造数量。默认左键选价并回到最新价居中，Esc 同样居中；鼠标报单须明确选择本地模拟开/平模式。")
     footer = QWidget()
     footer.setStyleSheet("background:#e6e9ed;font-size:11px")
     grid = QGridLayout(footer)

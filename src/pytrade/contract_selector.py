@@ -1,7 +1,7 @@
 from datetime import date
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout
 
 
 class VolumeItem(QTableWidgetItem):
@@ -27,6 +27,8 @@ class ContractSelector(QDialog):
         self.selected = set()
         self.sort_column = 0
         self.sort_descending = False
+        self.page = 0
+        self.page_size = 300
         self.setWindowTitle("选择合约")
         self.resize(840, 520)
         self.setModal(False)
@@ -61,10 +63,34 @@ class ContractSelector(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionsClickable(True)
         self.table.horizontalHeader().sectionClicked.connect(self.sort_requested)
-        layout.addWidget(self.table, 1)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.operation_logs = QTextEdit()
+        self.operation_logs.setReadOnly(True)
+        self.operation_logs.setDocument(controller.logs.document())
+        self.splitter.addWidget(self.operation_logs)
+        self.splitter.addWidget(self.table)
+        self.operation_logs.hide()
+        layout.addWidget(self.splitter, 1)
         self.hint = QLabel()
         layout.addWidget(self.hint)
+        pages = QHBoxLayout()
+        self.previous_page = QPushButton("上一页")
+        self.next_page = QPushButton("下一页")
+        self.page_label = QLabel()
+        self.previous_page.clicked.connect(lambda: self.change_page(-1))
+        self.next_page.clicked.connect(lambda: self.change_page(1))
+        pages.addWidget(self.previous_page)
+        pages.addWidget(self.page_label, 1)
+        pages.addWidget(self.next_page)
+        layout.addLayout(pages)
         actions = QHBoxLayout()
+        self.logs_button = QPushButton("显示操作日志")
+        self.logs_button.setCheckable(True)
+        self.logs_button.toggled.connect(self.toggle_logs)
+        actions.addWidget(self.logs_button)
+        arrange = QPushButton("平铺合约窗口")
+        arrange.clicked.connect(controller.align_windows)
+        actions.addWidget(arrange)
         self.home_button = QPushButton("返回首页")
         self.home_button.clicked.connect(controller.connect_ctp)
         actions.addWidget(self.home_button)
@@ -76,9 +102,9 @@ class ContractSelector(QDialog):
         close.clicked.connect(self.reject)
         actions.addWidget(close)
         layout.addLayout(actions)
-        self.search.textChanged.connect(self.refresh)
-        self.exchange.currentIndexChanged.connect(self.refresh)
-        self.category.currentIndexChanged.connect(self.refresh)
+        self.search.textChanged.connect(self.reset_page)
+        self.exchange.currentIndexChanged.connect(self.reset_page)
+        self.category.currentIndexChanged.connect(self.reset_page)
         self.table.itemChanged.connect(self.selection_changed)
         self.table.cellDoubleClicked.connect(self.open_row)
 
@@ -90,6 +116,12 @@ class ContractSelector(QDialog):
             return {key: snapshot.volume for key, snapshot in controller.simulator.snapshots.items()}
         return {}
 
+    def toggle_logs(self, visible):
+        self.operation_logs.setVisible(visible)
+        self.logs_button.setText("隐藏操作日志" if visible else "显示操作日志")
+        if visible:
+            self.splitter.setSizes([self.width() // 3, self.width() * 2 // 3])
+
     def sort_requested(self, column):
         if column == 0:
             return
@@ -97,6 +129,14 @@ class ContractSelector(QDialog):
             self.sort_descending = not self.sort_descending
         else:
             self.sort_column, self.sort_descending = column, column in {3, 5}
+        self.reset_page()
+
+    def reset_page(self, *args):
+        self.page = 0
+        self.refresh()
+
+    def change_page(self, delta):
+        self.page += delta
         self.refresh()
 
     def prepare(self, reset=False):
@@ -126,8 +166,14 @@ class ContractSelector(QDialog):
                 values = {2: item.name, 4: item.tick, 5: item.multiplier, 6: kind(item), 1: item.key}
                 return (values.get(self.sort_column),)
             items.sort(key=sort_key, reverse=self.sort_descending)
-        rows = items[:300]
-        self.truncated = len(items) > 300
+        page_count = max(1, (len(items) + self.page_size - 1) // self.page_size)
+        self.page = max(0, min(self.page, page_count - 1))
+        start = self.page * self.page_size
+        rows = items[start:start + self.page_size]
+        self.truncated = len(items) > self.page_size
+        self.previous_page.setEnabled(self.page > 0)
+        self.next_page.setEnabled(self.page + 1 < page_count)
+        self.page_label.setText(f"共 {len(items)} 个合约 · 第 {self.page + 1}/{page_count} 页 · 本页 {len(rows)} 个")
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         try:
@@ -161,7 +207,7 @@ class ContractSelector(QDialog):
         count = len(self.selected)
         self.open_button.setText(f"打开所选 ({count})")
         self.open_button.setEnabled(0 < count <= 40)
-        self.hint.setText(f"已选 {count} 个，最多同时打开40个。" + ("当前仅显示前300项，请搜索缩小范围。" if self.truncated else "双击合约可直接打开；点击表头排序。"))
+        self.hint.setText(f"已选 {count} 个，单次最多打开40个。可跨页勾选，双击直接打开；点击表头排序。")
 
     def open_selected(self):
         keys = sorted(self.selected.intersection(self.controller.catalog))

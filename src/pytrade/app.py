@@ -445,23 +445,40 @@ class Controller(QMainWindow):
 
     def align_windows(self):
         screen = self.screen().availableGeometry()
-        visible = [w for w in self.windows if w.isVisible()]
+        visible = [w for w in self.windows if w.isVisible() and not w.closing]
         if not visible:
             return
-        top = screen.top() + 6
-        below = self.frameGeometry().bottom() + 7
-        if screen.bottom() - below >= visible[0].minimumHeight() + 40:
-            top = below
-        columns = max(1, (screen.width() - 12) // (visible[0].frameGeometry().width() + 4))
-        for index, window in enumerate(visible):
-            row, column = divmod(index, columns)
-            frame_extra = window.frameGeometry().height() - window.height()
-            height = min(self.config_store.effective().dom_height, max(window.minimumHeight(), screen.bottom() - top - frame_extra - 8))
-            window.resize(window.width(), height)
-            x = screen.x() + 6 + column * (window.frameGeometry().width() + 4)
-            y = top + min(row * 24, max(0, screen.bottom() - top - window.frameGeometry().height()))
-            window.move(x, y)
-            window.raise_()
+        self.syncing_dom_size = True
+        try:
+            for window in visible:
+                if window.isMaximized() or window.isMinimized():
+                    window.showNormal()
+                window.set_zoom(self.dom_zoom, resize=False)
+            frame_width = max(w.frameGeometry().width() - w.width() for w in visible)
+            frame_height = max(w.frameGeometry().height() - w.height() for w in visible)
+            min_width = max(w.minimumWidth() for w in visible) + frame_width
+            min_height = max(w.minimumHeight() for w in visible) + frame_height
+            gap = 4
+            area = screen.adjusted(4, 4, -4, -4)
+            max_columns = max(1, (area.width() + gap) // (min_width + gap))
+            max_rows = max(1, (area.height() + gap) // (min_height + gap))
+            capacity = max_columns * max_rows
+            if len(visible) > capacity:
+                self.log(f"当前屏幕与显示比例最多平铺 {capacity} 个窗口；请缩小显示比例或分组后排列")
+                return
+            preferred = max(1, min(max_columns, (area.width() + gap) // (visible[0].width() + frame_width + gap)))
+            columns = min(len(visible), max(preferred, (len(visible) + max_rows - 1) // max_rows))
+            rows = (len(visible) + columns - 1) // columns
+            width = (area.width() - (columns - 1) * gap) // columns - frame_width
+            height = (area.height() - (rows - 1) * gap) // rows - frame_height
+            for index, window in enumerate(visible):
+                row, column = divmod(index, columns)
+                window.resize(width, height)
+                window.move(area.x() + column * (width + frame_width + gap), area.y() + row * (height + frame_height + gap))
+                window.raise_()
+        finally:
+            self.syncing_dom_size = False
+        self.sync_dom_size(visible[0])
 
     def switch_group(self):
         for window in self.windows:
